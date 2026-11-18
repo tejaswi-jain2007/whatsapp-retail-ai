@@ -12,6 +12,7 @@ router = APIRouter(prefix="/webhooks", tags=["WhatsApp Webhooks"])
 
 class SimulateWhatsAppMessageRequest(BaseModel):
     store_id: Optional[str] = None
+    shopkeeper_phone: Optional[str] = None
     phone_number_id: Optional[str] = None
     sender_phone: str = "+919876543210"
     sender_name: Optional[str] = "Priya Sharma"
@@ -64,9 +65,21 @@ async def simulate_incoming_whatsapp_message(
     """
     import uuid
     import time
+    from app.models.entities import Store
 
     msg_id = data.message_id or f"wamid.sim.{uuid.uuid4().hex[:12]}"
-    phone_id = data.phone_number_id or "WA_PHONE_ID_1001"
+    phone_id = data.phone_number_id
+
+    if not phone_id and data.store_id:
+        st = db.query(Store).filter(Store.id == data.store_id).first()
+        if st:
+            phone_id = st.whatsapp_phone_number_id or st.phone
+
+    if not phone_id and data.shopkeeper_phone:
+        phone_id = data.shopkeeper_phone
+
+    if not phone_id:
+        phone_id = "WA_PHONE_ID_1001"
 
     simulated_payload = {
         "object": "whatsapp_business_account",

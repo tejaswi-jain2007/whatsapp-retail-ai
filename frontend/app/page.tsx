@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Tab = "orders" | "products" | "qr_verify" | "analytics" | "simulate";
+type Tab = "orders" | "lists" | "products" | "qr_verify" | "analytics" | "simulate";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("orders");
@@ -34,6 +34,11 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+
+  // Shopkeeper Mobile Number Edit
+  const [isEditingPhone, setIsEditingPhone] = useState<boolean>(false);
+  const [shopMobileInput, setShopMobileInput] = useState<string>("");
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
   // Selected Order for Review / Packing modal
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -100,6 +105,35 @@ export default function DashboardPage() {
 
   const refreshCurrentData = () => {
     if (store) loadStoreData(store.id);
+  };
+
+  const handleSaveShopMobile = async () => {
+    if (!store || !shopMobileInput) return;
+    try {
+      const updated = await api.updateStore(store.id, {
+        phone: shopMobileInput,
+      });
+      setStore(updated);
+      setIsEditingPhone(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCopyShoppingList = (order: any) => {
+    const lines = [
+      `🛒 Shopping List for ${order.customer?.name || "Customer"} (${order.customer?.phone}):`,
+      `Order #${order.order_number}`,
+      `------------------------`,
+      ...order.items.map(
+        (it: any, i: number) => `${i + 1}. [ ] ${it.product_name_snapshot} - ${it.quantity} ${it.unit} (₹${it.total_price})`
+      ),
+      `------------------------`,
+      `Total: ₹${order.grand_total}`,
+    ];
+    navigator.clipboard.writeText(lines.join("\n"));
+    setCopiedOrderId(order.id);
+    setTimeout(() => setCopiedOrderId(null), 2500);
   };
 
   // Open Order Review modal
@@ -266,15 +300,47 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Store Info */}
+          {/* Store Info & Connected Mobile */}
           {store && (
-            <div className="p-4 mx-3 my-3 bg-slate-800/60 rounded-xl border border-slate-700/60">
-              <div className="flex items-center space-x-2 text-xs text-emerald-400 font-medium mb-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>WhatsApp Connected</span>
+            <div className="p-3.5 mx-3 my-3 bg-slate-800/70 rounded-xl border border-slate-700/60 text-xs">
+              <div className="flex items-center justify-between text-[11px] text-emerald-400 font-medium mb-1">
+                <span className="flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>WhatsApp Number</span>
+                </span>
+                <button
+                  onClick={() => {
+                    setShopMobileInput(store.phone || "+919876543210");
+                    setIsEditingPhone(!isEditingPhone);
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-white underline"
+                >
+                  {isEditingPhone ? "Cancel" : "Change"}
+                </button>
               </div>
-              <p className="text-sm font-semibold text-white truncate">{store.store_name}</p>
-              <p className="text-xs text-slate-400 truncate">{store.address}</p>
+
+              {!isEditingPhone ? (
+                <div>
+                  <p className="font-mono font-bold text-white text-sm">{store.phone}</p>
+                  <p className="text-[11px] text-slate-400 truncate mt-0.5">{store.store_name}</p>
+                </div>
+              ) : (
+                <div className="mt-1 space-y-1.5">
+                  <input
+                    type="text"
+                    value={shopMobileInput}
+                    onChange={(e) => setShopMobileInput(e.target.value)}
+                    placeholder="+91..."
+                    className="w-full px-2 py-1 bg-slate-900 border border-slate-600 rounded text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={handleSaveShopMobile}
+                    className="w-full py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px]"
+                  >
+                    Save My Number
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -291,6 +357,23 @@ export default function DashboardPage() {
               <div className="flex items-center space-x-3">
                 <ShoppingBag className="w-4 h-4" />
                 <span>Orders</span>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                {orders.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("lists")}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                activeTab === "lists"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <FileText className="w-4 h-4" />
+                <span>Customer Lists (ग्राहक लिस्ट)</span>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
                 {orders.length}
@@ -375,6 +458,7 @@ export default function DashboardPage() {
           <div className="flex items-center space-x-3">
             <h2 className="text-xl font-bold text-slate-800 capitalize">
               {activeTab === "orders" && "Live Orders"}
+              {activeTab === "lists" && "Customer Shopping Lists (ग्राहक ऑर्डर्स / लिस्ट)"}
               {activeTab === "products" && "Product Catalogue & Pricing"}
               {activeTab === "qr_verify" && "QR Pickup Verification"}
               {activeTab === "analytics" && "Store Performance Analytics"}
@@ -571,6 +655,178 @@ export default function DashboardPage() {
                                 <span>View Bill</span>
                               </button>
                             )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: CUSTOMER SHOPPING LISTS */}
+          {activeTab === "lists" && (
+            <div className="space-y-6">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-base text-slate-800">
+                    Customer Shopping Lists (ग्राहक ऑर्डर्स / लिस्ट)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    AI automatically converts incoming customer WhatsApp messages into organized, itemized packing lists.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                  <span className="font-semibold">Shop Mobile:</span>
+                  <span className="font-mono font-bold text-slate-900">{store?.phone}</span>
+                </div>
+              </div>
+
+              {orders.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                  <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-base font-semibold text-slate-700">No shopping lists yet</h3>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    When customers send shopping lists on WhatsApp, AI will automatically parse and display their lists here.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab("simulate")}
+                    className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold inline-flex items-center space-x-2"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Simulate First WhatsApp Order</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {orders.map((order) => {
+                    const isCopied = copiedOrderId === order.id;
+
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between"
+                      >
+                        {/* List Card Header */}
+                        <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono text-xs font-bold text-slate-900">
+                              #{order.order_number}
+                            </span>
+                            {getStatusBadge(order.status)}
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center space-x-2">
+                              <User className="w-4 h-4 text-emerald-600" />
+                              <span className="font-bold text-slate-900">
+                                {order.customer?.name || "Customer"}
+                              </span>
+                              <span className="font-mono text-slate-500">
+                                ({order.customer?.phone})
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {new Date(order.created_at).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+
+                          {/* Raw message received on WhatsApp */}
+                          <div className="mt-3 bg-white border border-slate-200/80 rounded-xl p-2.5 text-xs text-slate-600 italic">
+                            &ldquo;{order.original_message}&rdquo;
+                          </div>
+                        </div>
+
+                        {/* Parsed Items Checklist */}
+                        <div className="p-5 flex-1">
+                          <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+                            AI-Extracted Items Checklist:
+                          </h4>
+                          <div className="space-y-2">
+                            {order.items.map((item: any) => {
+                              const isPacked = item.packing_status === "PACKED";
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() =>
+                                    handleTogglePacking(order.id, item.id, item.packing_status)
+                                  }
+                                  className={`p-2.5 rounded-xl border flex items-center justify-between text-xs cursor-pointer transition select-none ${
+                                    isPacked
+                                      ? "bg-emerald-50/60 border-emerald-200 text-slate-500 line-through"
+                                      : "bg-slate-50/80 border-slate-200 hover:border-slate-300 text-slate-800"
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-3">
+                                    <div
+                                      className={`w-4 h-4 rounded flex items-center justify-center border transition ${
+                                        isPacked
+                                          ? "bg-emerald-600 border-emerald-600 text-white"
+                                          : "border-slate-300 bg-white"
+                                      }`}
+                                    >
+                                      {isPacked && <Check className="w-3 h-3 stroke-[3]" />}
+                                    </div>
+                                    <span className="font-semibold">
+                                      {item.product_name_snapshot}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center space-x-3 shrink-0">
+                                    <span className="font-mono font-medium px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px]">
+                                      {item.quantity} {item.unit}
+                                    </span>
+                                    <span className="font-bold text-slate-900 w-16 text-right">
+                                      ₹{item.total_price}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* List Footer */}
+                        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                              Bill Total
+                            </span>
+                            <span className="text-base font-bold text-slate-900">
+                              ₹{order.grand_total}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleCopyShoppingList(order)}
+                              className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-xs"
+                            >
+                              {isCopied ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span className="text-emerald-700">Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>Copy List</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenReview(order)}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
+                            >
+                              <span>Review & Bill</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       </div>

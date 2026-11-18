@@ -92,14 +92,24 @@ class WhatsAppWebhookService:
         text_content: str,
         button_reply_id: Optional[str] = None,
     ):
-        # 1. Identify Store
-        store = (
-            db.query(Store)
-            .filter(Store.whatsapp_phone_number_id == phone_number_id)
-            .first()
-        )
+        # 1. Identify Store (by WhatsApp Phone Number ID or Shopkeeper Mobile Number)
+        store = None
+        if phone_number_id:
+            store = (
+                db.query(Store)
+                .filter(Store.whatsapp_phone_number_id == phone_number_id)
+                .first()
+            )
+            if not store:
+                normalized_target = normalize_phone_number(phone_number_id)
+                store = (
+                    db.query(Store)
+                    .filter(Store.phone == normalized_target)
+                    .first()
+                )
+
         if not store:
-            # If not found by phone_number_id, fallback to first active store in dev
+            # Fallback to first active store in local dev
             store = db.query(Store).filter(Store.status == "active").first()
             if not store:
                 return
