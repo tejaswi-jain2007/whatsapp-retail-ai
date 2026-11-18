@@ -55,6 +55,8 @@ export default function DashboardPage() {
     "Bhaiya, 2 kg atta, 1 litre oil, 1 kg sugar aur 2 packet Maggi rakh dena"
   );
   const [simSuccess, setSimSuccess] = useState<string | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
+  const [isSendingSim, setIsSendingSim] = useState<boolean>(false);
   const [activeChatOrder, setActiveChatOrder] = useState<any>(null);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
 
@@ -93,9 +95,14 @@ export default function DashboardPage() {
         api.getProducts(storeId),
         api.getAnalytics(storeId),
       ]);
-      setOrders(Array.isArray(ordersData) ? ordersData : []);
+      const ords = Array.isArray(ordersData) ? ordersData : [];
+      setOrders(ords);
       setProducts(Array.isArray(productsData) ? productsData : []);
       setAnalytics(analyticsData);
+      if (ords.length > 0 && !activeChatOrder) {
+        setActiveChatOrder(ords[0]);
+        loadChatForOrder(ords[0].id);
+      }
     } catch (e) {
       console.error("Error loading store data:", e);
     }
@@ -209,17 +216,19 @@ export default function DashboardPage() {
   };
 
   const handleCustomerConfirmFromPhone = async (orderId: string, action: string) => {
-    if (!store || !activeChatOrder) return;
     try {
       await api.simulateWhatsApp({
-        store_id: store.id,
-        phone_number_id: store.whatsapp_phone_number_id,
-        sender_phone: activeChatOrder.customer?.phone || simPhone,
-        sender_name: activeChatOrder.customer?.name || simName,
+        store_id: store?.id,
+        phone_number_id: store?.whatsapp_phone_number_id || store?.phone,
+        shopkeeper_phone: store?.phone,
+        sender_phone: activeChatOrder?.customer?.phone || simPhone,
+        sender_name: activeChatOrder?.customer?.name || simName,
         message_text: action === "CONFIRM" ? "✅ Confirm Order" : "❌ Cancel Order",
       });
-      await loadStoreData(store.id);
+      if (store?.id) await loadStoreData(store.id);
       await loadChatForOrder(orderId);
+      const freshOrder = await api.getOrder(orderId);
+      if (freshOrder?.id) setActiveChatOrder(freshOrder);
     } catch (err) {
       console.error(err);
     }
@@ -227,26 +236,48 @@ export default function DashboardPage() {
 
   const handleSendSimulatedMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!store) return;
+    if (!simText.trim()) return;
+    setIsSendingSim(true);
+    setSimError(null);
     try {
       const res = await api.simulateWhatsApp({
-        store_id: store.id,
-        phone_number_id: store.whatsapp_phone_number_id,
+        store_id: store?.id,
+        phone_number_id: store?.whatsapp_phone_number_id || store?.phone,
+        shopkeeper_phone: store?.phone,
         sender_phone: simPhone,
         sender_name: simName,
         message_text: simText,
       });
-      setSimSuccess("Message received & parsed by AI! New order created in dashboard.");
-      setTimeout(() => setSimSuccess(null), 4000);
-      await loadStoreData(store.id);
-      // Auto-select latest order for chat view
-      const updatedOrders = await api.getOrders(store.id);
-      if (updatedOrders && updatedOrders.length > 0) {
-        setActiveChatOrder(updatedOrders[0]);
-        await loadChatForOrder(updatedOrders[0].id);
+
+      if (res && (res.status === "success" || res.simulated_message_id)) {
+        setSimSuccess("✅ Order message received & parsed! New shopping list created.");
+        setTimeout(() => setSimSuccess(null), 5000);
+
+        let storeId = store?.id;
+        if (!storeId) {
+          const stores = await api.getStores();
+          if (Array.isArray(stores) && stores.length > 0) {
+            setStore(stores[0]);
+            storeId = stores[0].id;
+          }
+        }
+
+        if (storeId) {
+          await loadStoreData(storeId);
+          const freshOrders = await api.getOrders(storeId);
+          if (Array.isArray(freshOrders) && freshOrders.length > 0) {
+            setActiveChatOrder(freshOrders[0]);
+            await loadChatForOrder(freshOrders[0].id);
+          }
+        }
+      } else {
+        setSimError(res?.detail || res?.message || "Failed to process message");
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("Simulation error:", err);
+      setSimError(err.message || "Failed to connect to backend server");
+    } finally {
+      setIsSendingSim(false);
     }
   };
 
@@ -1083,6 +1114,13 @@ export default function DashboardPage() {
                     </div>
                   )}
 
+                  {simError && (
+                    <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{simError}</span>
+                    </div>
+                  )}
+
                   <form onSubmit={handleSendSimulatedMessage} className="space-y-3.5">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -1152,10 +1190,20 @@ export default function DashboardPage() {
 
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
+                      disabled={isSendingSim}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Send Customer Message</span>
+                      {isSendingSim ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>AI Parsing Message...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send Customer Message</span>
+                        </>
+                      )}
                     </button>
                   </form>
                 </div>
@@ -1179,7 +1227,30 @@ export default function DashboardPage() {
               </div>
 
               {/* Right Column: Interactive WhatsApp Phone Mockup */}
-              <div className="lg:col-span-6 flex justify-center">
+              <div className="lg:col-span-6 flex flex-col items-center">
+                {orders.length > 0 && (
+                  <div className="w-full max-w-sm mb-2 flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-700">Showing Phone for:</span>
+                    <select
+                      value={activeChatOrder?.id || ""}
+                      onChange={(e) => {
+                        const ord = orders.find((o) => o.id === e.target.value);
+                        if (ord) {
+                          setActiveChatOrder(ord);
+                          loadChatForOrder(ord.id);
+                        }
+                      }}
+                      className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-xs focus:outline-none"
+                    >
+                      {orders.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          #{o.order_number} - {o.customer?.name || "Customer"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="w-full max-w-sm bg-slate-900 rounded-[2.5rem] p-3 shadow-2xl border-4 border-slate-800">
                   {/* Phone Bezel */}
                   <div className="bg-[#EFEAE2] rounded-[2rem] overflow-hidden flex flex-col h-[560px] border border-slate-700/50">
