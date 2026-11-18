@@ -12,6 +12,7 @@ class AIParsedItem(BaseModel):
 
 
 class AIParsedResponse(BaseModel):
+    is_shopping_order: bool = False
     items: List[AIParsedItem] = Field(default_factory=list)
     requires_clarification: bool = False
     clarification_reason: Optional[str] = None

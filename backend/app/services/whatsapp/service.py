@@ -170,8 +170,21 @@ class WhatsAppWebhookService:
             db.commit()
             return
 
-        # 5. Process new order shopping list
-        await self._process_new_order(db, store, customer, text_content)
+        # 5. PRIVACY SHIELD & RETAIL INTENT CHECK
+        # Parse message with AI to see if it contains genuine shopping list / grocery items
+        ai_result = ai_parser.parse_message(text_content)
+
+        if not ai_result.is_shopping_order or not ai_result.items:
+            # Message is personal (family/friends/casual chat). Protect shopkeeper privacy!
+            # Do NOT create order, do NOT send store acknowledgment, do NOT expose on dashboard.
+            event_record.processing_status = "IGNORED"
+            event_record.message_content = "[PERSONAL_MESSAGE_IGNORED_FOR_PRIVACY]"
+            db.commit()
+            print(f"[PrivacyShield] Non-shopping personal chat from {normalized_phone} safely ignored. No order created.")
+            return
+
+        # 6. Process new order shopping list
+        await self._process_new_order(db, store, customer, text_content, ai_result)
         event_record.processing_status = "PROCESSED"
         db.commit()
 
@@ -261,10 +274,11 @@ class WhatsAppWebhookService:
             )
 
     async def _process_new_order(
-        self, db: Session, store: Store, customer: Customer, text_content: str
+        self, db: Session, store: Store, customer: Customer, text_content: str, ai_result=None
     ):
-        # AI parsing
-        ai_result = ai_parser.parse_message(text_content)
+        # AI parsing if not already parsed
+        if not ai_result:
+            ai_result = ai_parser.parse_message(text_content)
 
         # Generate unique order number: ORD-YYYYMMDD-XXXX
         date_str = datetime.now().strftime("%y%m%d")

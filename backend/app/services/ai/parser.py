@@ -42,6 +42,33 @@ UNIT_MAPPINGS = {
     "strip": "strip",
 }
 
+COMMON_GROCERY_KEYWORDS = {
+    "atta", "aata", "flour", "gehun", "maida", "suji", "sooji", "besan",
+    "oil", "tel", "mustard", "sunflower", "refined", "soyabean", "ghee", "dalda",
+    "sugar", "shakkar", "chini", "cheeni", "jaggery", "gud",
+    "rice", "chawal", "basmati",
+    "dal", "daal", "toor", "moong", "chana", "urad", "masoor", "rajma", "cholley", "chhole",
+    "salt", "namak",
+    "tea", "chai", "coffee", "bru", "nescafe",
+    "milk", "doodh", "amul", "curd", "dahi", "paneer", "butter", "cheese",
+    "masala", "haldi", "mirch", "jeera", "dhaniya", "garam masala", "hing", "rai", "methi",
+    "soap", "sabun", "lux", "dettol", "lifebuoy", "dove", "pears", "rin", "surf", "tide", "wheel", "ariel", "vim",
+    "shampoo", "toothpaste", "colgate", "pepsodent", "sensodyne", "close up", "brush",
+    "biscuit", "parle", "good day", "marie", "monaco", "oreo", "bourbon",
+    "maggi", "noodles", "yippee", "pasta", "sauce", "ketchup",
+    "bread", "rusk", "toast", "namkeen", "bhujia", "lays", "chips", "kurkure",
+    "poha", "murmura", "cornflakes", "oats",
+    "harpic", "lizol", "hit", "agarbatti", "machis", "candle", "dhoop",
+}
+
+CASUAL_NON_RETAIL_WORDS = {
+    "kaise", "kaisa", "kaisi", "kya", "kab", "kaha", "kidhar", "kyu", "kyun",
+    "ghar", "aao", "aaoge", "aana", "milte", "hain", "hai", "ho", "tha", "thi",
+    "call", "phone", "uthana", "uthao", "bhai", "bro", "dost", "mummy", "papa",
+    "bhaiya", "bhabhi", "didi", "beta", "photo", "photos", "video", "otp",
+    "happy", "birthday", "congrats", "good", "morning", "night", "shadi", "karein",
+}
+
 
 def normalize_unit(unit_str: Optional[str]) -> str:
     if not unit_str:
@@ -142,22 +169,32 @@ Customer WhatsApp Message:
 
         if not items:
             return AIParsedResponse(
+                is_shopping_order=False,
                 items=[],
-                requires_clarification=True,
-                clarification_reason="Could not detect any clear grocery items or quantities."
+                requires_clarification=False,
+                clarification_reason="No grocery items detected."
             )
 
-        return AIParsedResponse(items=items, requires_clarification=False)
+        return AIParsedResponse(is_shopping_order=True, items=items, requires_clarification=False)
 
     def _parse_single_segment(self, segment: str) -> Optional[AIParsedItem]:
-        # Regex to find: (Quantity) (Unit)? (Product Name) or (Product Name) (Quantity) (Unit)?
-        # Example 1: "2 kg atta", "1 litre oil", "2 packet maggi"
-        # Example 2: "atta 2kg", "sugar 1 kg"
+        seg_lower = segment.strip().lower()
+
+        # Reject pure conversational / casual sentences
+        tokens = [t for t in re.split(r"\W+", seg_lower) if t]
+        if tokens and all(t in CASUAL_NON_RETAIL_WORDS for t in tokens):
+            return None
+
+        # Regex to find: (Quantity) (Unit)? (Product Name)
         pattern1 = r"^([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]+)?\s+(.+)$"
         match1 = re.match(pattern1, segment.strip())
 
         if match1:
             qty_str, unit_candidate, name_candidate = match1.groups()
+            name_clean = name_candidate.strip().lower()
+            if name_clean in CASUAL_NON_RETAIL_WORDS:
+                return None
+
             qty = Decimal(qty_str)
 
             # Check if unit_candidate is indeed a known unit
@@ -183,6 +220,10 @@ Customer WhatsApp Message:
         match2 = re.match(pattern2, segment.strip())
         if match2:
             name_candidate, qty_str, unit_candidate = match2.groups()
+            name_clean = name_candidate.strip().lower()
+            if name_clean in CASUAL_NON_RETAIL_WORDS:
+                return None
+
             qty = Decimal(qty_str)
             unit = normalize_unit(unit_candidate) if unit_candidate else "packet"
             return AIParsedItem(
@@ -191,13 +232,15 @@ Customer WhatsApp Message:
                 unit=unit
             )
 
-        # If it's just a word like "maggi" without quantity
-        if len(segment.strip()) > 1 and not segment.strip().isdigit():
-            return AIParsedItem(
-                product_name=segment.strip().title(),
-                quantity=Decimal("1.0"),
-                unit="packet"
-            )
+        # If it's a word without quantity (e.g. "maggi", "sugar", "atta"):
+        # ONLY accept if it contains a known grocery item keyword!
+        for kw in COMMON_GROCERY_KEYWORDS:
+            if kw in seg_lower:
+                return AIParsedItem(
+                    product_name=segment.strip().title(),
+                    quantity=Decimal("1.0"),
+                    unit="packet"
+                )
 
         return None
 
