@@ -56,4 +56,7 @@ Thumbs.db
 *.db
 invoices_pdf/
 qr_codes/
+sessions/
+whatsapp-gateway/sessions/
+
 
