@@ -117,3 +117,4 @@ def test_billing_and_pdf_generation(test_db):
     assert invoice.total_amount == Decimal("130.00")
     assert invoice.invoice_number.startswith("INV-")
     assert invoice.pdf_url is not None
+

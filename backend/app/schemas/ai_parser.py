@@ -15,3 +15,4 @@ class AIParsedResponse(BaseModel):
     items: List[AIParsedItem] = Field(default_factory=list)
     requires_clarification: bool = False
     clarification_reason: Optional[str] = None
+

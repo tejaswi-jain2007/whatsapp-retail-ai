@@ -58,3 +58,4 @@ VALUES
     ('p0000007-0000-0000-0000-000000000007', 's0000001-0000-0000-0000-000000000001', 'c0000001-0000-0000-0000-000000000001',
      'India Gate Basmati Rice Daily Oats', 'India Gate', 'Premium Long Grain', '["rice", "chawal", "basmati"]'::jsonb, 'kg', 90.00, 120.000, true)
 ON CONFLICT (id) DO NOTHING;
+

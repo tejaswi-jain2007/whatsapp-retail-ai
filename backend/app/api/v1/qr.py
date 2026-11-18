@@ -60,3 +60,4 @@ def verify_pickup_qr(
         grand_total=f"₹{order.grand_total:.2f}",
         status=order.status,
     )
+

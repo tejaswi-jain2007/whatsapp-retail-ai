@@ -217,3 +217,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_qr_tokens_hash ON qr_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_message_events_wa_id ON message_events(whatsapp_message_id);
+

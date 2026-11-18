@@ -63,3 +63,4 @@ def download_invoice_pdf(invoice_id: str, db: Session = Depends(get_db)):
         media_type="application/pdf",
         filename=pdf_filename,
     )
+

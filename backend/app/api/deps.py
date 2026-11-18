@@ -49,3 +49,4 @@ def verify_store_access(
         raise HTTPException(status_code=403, detail="Not authorized to access this store")
 
     return store
+

@@ -242,3 +242,4 @@ def match_item_to_catalogue(
         return best_match, best_match.current_price
 
     return None, Decimal("0.00")
+

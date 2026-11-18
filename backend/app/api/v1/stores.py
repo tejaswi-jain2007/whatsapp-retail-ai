@@ -78,3 +78,4 @@ def update_store(
     db.commit()
     db.refresh(store)
     return store
+

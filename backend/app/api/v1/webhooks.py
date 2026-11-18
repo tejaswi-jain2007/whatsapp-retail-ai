@@ -106,3 +106,4 @@ async def simulate_incoming_whatsapp_message(
 
     result = await whatsapp_webhook_service.process_incoming_webhook(db, simulated_payload)
     return {"status": "success", "result": result, "simulated_message_id": msg_id}
+

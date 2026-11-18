@@ -139,3 +139,4 @@ def get_product_price_history(
         .order_by(PriceHistory.effective_at.desc())
         .all()
     )
+

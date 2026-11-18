@@ -274,3 +274,4 @@ class CallLog(Base):
     call_status = Column(String(50), default="SCHEDULED", nullable=False)  # SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED, FAILED
     attempt_number = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+

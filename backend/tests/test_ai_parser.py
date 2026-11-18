@@ -52,3 +52,4 @@ def test_catalogue_matching():
     assert matched is not None
     assert matched.id == "p1"
     assert price == Decimal("45.00")
+

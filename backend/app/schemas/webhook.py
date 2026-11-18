@@ -62,3 +62,4 @@ class WhatsAppEntry(BaseModel):
 class WhatsAppWebhookPayload(BaseModel):
     object: str
     entry: List[WhatsAppEntry]
+

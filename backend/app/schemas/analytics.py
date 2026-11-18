@@ -24,3 +24,4 @@ class StoreAnalyticsResponse(BaseModel):
     average_order_value: Decimal
     orders_by_status: Dict[str, int]
     top_products: List[PopularProduct]
+

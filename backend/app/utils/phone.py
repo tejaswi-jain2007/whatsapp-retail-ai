@@ -33,3 +33,4 @@ def normalize_phone_number(phone: str, default_country_code: str = "91") -> str:
         return f"+{cleaned}"
 
     return f"+{cleaned}"
+

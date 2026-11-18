@@ -24,3 +24,4 @@ class QrVerifyResponse(BaseModel):
     customer_phone: Optional[str] = None
     grand_total: Optional[str] = None
     status: Optional[str] = None
+

@@ -78,3 +78,4 @@ def get_store_analytics(
         orders_by_status=dict(status_counts),
         top_products=top_products,
     )
+
