@@ -11,6 +11,7 @@ from app.models.entities import (
     OrderItem,
     OrderEvent,
     MessageEvent,
+    Notification,
     Product,
 )
 from app.services.whatsapp.client import whatsapp_client
@@ -329,6 +330,19 @@ class WhatsAppWebhookService:
             f"Order ID: #{order.order_number}\n\n"
             f"Dukandaar saman aur keemat check karke aapko final bill bhejenge. Kripya thoda intezaar karein."
         )
+        db.add(
+            Notification(
+                order_id=order.id,
+                channel="whatsapp",
+                message_type="ORDER_ACK",
+                recipient_phone=customer.phone,
+                payload=ack_message,
+                status="SENT",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
         await self.client.send_text_message(
             store.whatsapp_phone_number_id or "",
             customer.phone,

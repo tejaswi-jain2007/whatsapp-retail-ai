@@ -4,7 +4,7 @@ from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from app.models.entities import Order, OrderItem, OrderEvent, Store, Customer
+from app.models.entities import Order, OrderItem, OrderEvent, Store, Customer, Notification
 from app.services.qr.service import qr_service
 from app.services.whatsapp.client import whatsapp_client
 from app.services.billing.generator import billing_service
@@ -99,6 +99,19 @@ class OrderLifecycleService:
         store_phone_id = order.store.whatsapp_phone_number_id if order.store else ""
         cust_phone = order.customer.phone if order.customer else ""
 
+        db.add(
+            Notification(
+                order_id=order.id,
+                channel="whatsapp",
+                message_type="CUSTOMER_CONFIRMATION_REQUIRED",
+                recipient_phone=cust_phone,
+                payload=summary_text,
+                status="SENT",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
         await whatsapp_client.send_order_confirmation_buttons(
             phone_number_id=store_phone_id,
             recipient_phone=cust_phone,
@@ -167,6 +180,19 @@ class OrderLifecycleService:
                     f"Pickup Code: *{raw_token}*\n\n"
                     f"Dukandaar ko yeh code dikhayein ya scan karwayein. Dhanyawaad!"
                 )
+                db.add(
+                    Notification(
+                        order_id=order.id,
+                        channel="whatsapp",
+                        message_type="ORDER_READY",
+                        recipient_phone=cust_phone,
+                        payload=pickup_msg,
+                        status="SENT",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+                db.commit()
+
                 await whatsapp_client.send_text_message(store_phone_id, cust_phone, pickup_msg)
 
         elif packed_count > 0:

@@ -233,3 +233,57 @@ async def update_item_packing(
     )
     return updated_item
 
+
+@router.get("/orders/{order_id}/chat")
+def get_order_chat_thread(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the real-time chronological WhatsApp chat thread between customer and store for this order.
+    """
+    from app.models.entities import MessageEvent, Notification
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    verify_store_access(order.store_id, current_user, db)
+
+    # 1. Customer inbound messages
+    inbound_msgs = (
+        db.query(MessageEvent)
+        .filter(MessageEvent.customer_id == order.customer_id)
+        .all()
+    )
+
+    # 2. Outbound notifications/messages sent by store
+    outbound_msgs = (
+        db.query(Notification)
+        .filter(Notification.order_id == order.id)
+        .all()
+    )
+
+    thread = []
+    for m in inbound_msgs:
+        thread.append({
+            "id": m.id,
+            "sender": "customer",
+            "sender_name": order.customer.name or "Customer",
+            "text": m.message_content,
+            "created_at": m.received_at,
+        })
+
+    for n in outbound_msgs:
+        thread.append({
+            "id": n.id,
+            "sender": "store",
+            "sender_name": order.store.store_name,
+            "text": n.payload,
+            "message_type": n.message_type,
+            "created_at": n.created_at,
+        })
+
+    # Sort chronologically
+    thread.sort(key=lambda x: x["created_at"])
+    return thread
+
