@@ -161,8 +161,32 @@ class WhatsAppWebhookService:
         db.add(event_record)
         db.commit()
 
-        # 4. Check for interactive reply or confirmation keyword
-        if button_reply_id or self._is_confirmation_reply(text_content):
+        # 4. Check for interactive reply or confirmation on pending orders
+        related_customer_ids = [customer.id]
+        if customer.name:
+            for c in db.query(Customer).filter(Customer.store_id == store.id, Customer.name == customer.name).all():
+                if c.id not in related_customer_ids:
+                    related_customer_ids.append(c.id)
+
+        pending_order = (
+            db.query(Order)
+            .filter(
+                Order.store_id == store.id,
+                Order.customer_id.in_(related_customer_ids),
+                Order.status == "CUSTOMER_CONFIRMATION",
+            )
+            .order_by(Order.created_at.desc())
+            .first()
+        )
+
+        if pending_order and (button_reply_id or self._is_confirmation_reply(text_content)):
+            await self._process_customer_confirmation_reply(
+                db, store, customer, text_content, button_reply_id, pending_order
+            )
+            event_record.processing_status = "PROCESSED"
+            db.commit()
+            return
+        elif button_reply_id or self._is_confirmation_reply(text_content):
             await self._process_customer_confirmation_reply(
                 db, store, customer, text_content, button_reply_id
             )
@@ -190,7 +214,18 @@ class WhatsAppWebhookService:
 
     def _is_confirmation_reply(self, text: str) -> bool:
         normalized = text.lower().strip()
-        confirm_words = ["confirm", "yes", "ok", "haan", "sahi hai", "theek hai", "accept"]
+        # Direct short answers: 1, 2, yes, ok, haan, etc.
+        if normalized in [
+            "1", "2", "yes", "y", "ok", "k", "haan", "ha", "theek", "done",
+            "confirm", "confirmed", "sahi", "pack", "bhej", "accept", "sure",
+            "cancel", "no", "n", "nhi", "nahin", "modify"
+        ]:
+            return True
+        confirm_words = [
+            "confirm", "yes", "ok", "haan", "ha ji", "sahi hai", "theek hai",
+            "theek h", "pack kar", "pack kardo", "bhej do", "bhej dena",
+            "cancel", "radd", "modify", "badal do"
+        ]
         return any(w in normalized for w in confirm_words)
 
     async def _process_customer_confirmation_reply(
@@ -200,24 +235,40 @@ class WhatsAppWebhookService:
         customer: Customer,
         text_content: str,
         button_reply_id: Optional[str],
+        order: Optional[Order] = None,
     ):
-        # Find latest order awaiting customer confirmation
-        order = (
-            db.query(Order)
-            .filter(
-                Order.store_id == store.id,
-                Order.customer_id == customer.id,
-                Order.status == "CUSTOMER_CONFIRMATION",
+        if not order:
+            related_customer_ids = [customer.id]
+            if customer.name:
+                for c in db.query(Customer).filter(Customer.store_id == store.id, Customer.name == customer.name).all():
+                    if c.id not in related_customer_ids:
+                        related_customer_ids.append(c.id)
+
+            order = (
+                db.query(Order)
+                .filter(
+                    Order.store_id == store.id,
+                    Order.customer_id.in_(related_customer_ids),
+                    Order.status == "CUSTOMER_CONFIRMATION",
+                )
+                .order_by(Order.created_at.desc())
+                .first()
             )
-            .order_by(Order.created_at.desc())
-            .first()
-        )
 
         if not order:
             return
 
-        is_cancel = (button_reply_id and "CANCEL" in button_reply_id) or "cancel" in text_content.lower()
-        is_modify = (button_reply_id and "MODIFY" in button_reply_id) or "modify" in text_content.lower()
+        normalized = text_content.lower().strip()
+        is_cancel = (
+            (button_reply_id and "CANCEL" in button_reply_id)
+            or normalized in ["2", "cancel", "no", "nhi", "nahin", "radd"]
+            or "cancel" in normalized
+        )
+        is_modify = (
+            (button_reply_id and "MODIFY" in button_reply_id)
+            or normalized in ["modify", "change", "badal do"]
+            or "modify" in normalized
+        )
 
         if is_cancel:
             order.status = "CANCELLED"
