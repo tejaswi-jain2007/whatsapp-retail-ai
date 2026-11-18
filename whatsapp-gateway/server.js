@@ -19,12 +19,12 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 app.use(cors());
 
-// Proxy all FastAPI backend requests (/api/v1) to port 8000 BEFORE body parser without stripping path
+// Proxy all FastAPI backend requests (/api/v1) to port 8000 BEFORE body parser
 app.use(
+  '/api/v1',
   createProxyMiddleware({
-    target: 'http://127.0.0.1:8000',
+    target: 'http://127.0.0.1:8000/api/v1',
     changeOrigin: true,
-    filter: (pathname) => pathname.startsWith('/api/v1'),
   })
 );
 
