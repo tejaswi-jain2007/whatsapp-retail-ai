@@ -174,12 +174,21 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    if (store?.id && activeTab === "pairing") {
-      checkGatewayStatus(store.id);
-      const interval = setInterval(() => checkGatewayStatus(store.id), 3000);
-      return () => clearInterval(interval);
-    }
-  }, [store?.id, activeTab]);
+    const storeId = store?.id || "s0000001-0000-0000-0000-000000000001";
+    checkGatewayStatus(storeId);
+    
+    // Auto-refresh orders and connection status every 4 seconds
+    const interval = setInterval(() => {
+      checkGatewayStatus(storeId);
+      if (store?.id) {
+        api.getOrders(store.id).then((fresh) => {
+          if (Array.isArray(fresh)) setOrders(fresh);
+        }).catch(() => {});
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [store?.id]);
 
   const handleSaveShopMobile = async () => {
     if (!store || !shopMobileInput) return;
