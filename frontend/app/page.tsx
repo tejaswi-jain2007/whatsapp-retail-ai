@@ -203,9 +203,18 @@ export default function DashboardPage() {
     }
   };
 
+  const formatCustomerPhone = (phone?: string) => {
+    if (!phone) return "";
+    const cleaned = phone.replace("+", "").split("@")[0];
+    if (cleaned.length > 12 || cleaned.startsWith("195") || phone.includes("@lid")) {
+      return "WhatsApp";
+    }
+    return phone;
+  };
+
   const handleCopyShoppingList = (order: any) => {
     const lines = [
-      `🛒 Shopping List for ${order.customer?.name || "Customer"} (${order.customer?.phone}):`,
+      `🛒 Shopping List for ${order.customer?.name || "Customer"} (${formatCustomerPhone(order.customer?.phone)}):`,
       `Order #${order.order_number}`,
       `------------------------`,
       ...order.items.map(
@@ -770,7 +779,7 @@ export default function DashboardPage() {
                               {order.customer?.name || "Customer"}
                             </span>
                             <span className="text-slate-400 font-mono">
-                              ({order.customer?.phone})
+                              ({formatCustomerPhone(order.customer?.phone)})
                             </span>
                           </div>
 
@@ -947,7 +956,7 @@ export default function DashboardPage() {
                                 {order.customer?.name || "Customer"}
                               </span>
                               <span className="font-mono text-slate-500">
-                                ({order.customer?.phone})
+                                ({formatCustomerPhone(order.customer?.phone)})
                               </span>
                             </div>
                             <span className="text-[11px] text-slate-400">
@@ -1810,7 +1819,7 @@ export default function DashboardPage() {
                     {getStatusBadge(selectedOrder.status)}
                   </div>
                   <p className="text-xs text-slate-500">
-                    Customer: {selectedOrder.customer?.name} ({selectedOrder.customer?.phone})
+                    Customer: {selectedOrder.customer?.name} ({formatCustomerPhone(selectedOrder.customer?.phone)})
                   </p>
                 </div>
               </div>

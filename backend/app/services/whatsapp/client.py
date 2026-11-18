@@ -43,12 +43,28 @@ class WhatsAppCloudClient:
     ) -> Dict[str, Any]:
         """
         Sends a standard text message to a customer on WhatsApp.
+        If Meta Cloud API is configured, uses it; otherwise sends via local WhatsApp Gateway (Baileys).
         """
         # Clean recipient phone (strip leading + for WhatsApp API)
         to_phone = recipient_phone.replace("+", "").strip()
 
         if not self.access_token or self.access_token == "your_meta_system_user_token":
-            # Mock sending for dev/testing
+            # Send real message through local WhatsApp Gateway (Baileys)
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    gw_resp = await client.post(
+                        "http://127.0.0.1:3001/api/send",
+                        json={
+                            "store_id": "s0000001-0000-0000-0000-000000000001",
+                            "recipient_phone": recipient_phone,
+                            "message_text": text,
+                        },
+                    )
+                    if gw_resp.status_code == 200:
+                        return gw_resp.json()
+            except Exception as e:
+                print(f"[WhatsAppClient] Error sending via Gateway: {e}")
+
             return {
                 "messaging_product": "whatsapp",
                 "contacts": [{"input": to_phone, "wa_id": to_phone}],
@@ -78,10 +94,32 @@ class WhatsAppCloudClient:
     ) -> Dict[str, Any]:
         """
         Sends an interactive message with Quick Reply buttons (Confirm, Modify, Cancel).
+        If Meta Cloud API is configured, uses it; otherwise sends formatted text with reply instructions via Gateway.
         """
         to_phone = recipient_phone.replace("+", "").strip()
 
         if not self.access_token or self.access_token == "your_meta_system_user_token":
+            # Send formatted text message with reply prompt through local Gateway
+            msg_with_prompt = (
+                f"{order_summary_text}\n\n"
+                f"Confirm karne ke liye *CONFIRM* ya *1* likhein,\n"
+                f"Cancel karne ke liye *CANCEL* likhein."
+            )
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    gw_resp = await client.post(
+                        "http://127.0.0.1:3001/api/send",
+                        json={
+                            "store_id": "s0000001-0000-0000-0000-000000000001",
+                            "recipient_phone": recipient_phone,
+                            "message_text": msg_with_prompt,
+                        },
+                    )
+                    if gw_resp.status_code == 200:
+                        return gw_resp.json()
+            except Exception as e:
+                print(f"[WhatsAppClient] Error sending via Gateway: {e}")
+
             return {
                 "messaging_product": "whatsapp",
                 "messages": [{"id": f"wamid.mock.buttons.{to_phone}"}],

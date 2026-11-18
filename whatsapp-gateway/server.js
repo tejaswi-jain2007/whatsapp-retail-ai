@@ -33,6 +33,10 @@ app.use(express.json());
 // In-memory registry of active store sockets
 // storeId -> { sock, status: 'disconnected'|'pairing'|'connected', phone, pairingCode, lastSeen }
 const sessions = new Map();
+// Cache of recipient identifiers -> remoteJid (handles @lid and @s.whatsapp.net seamlessly)
+const jidCache = new Map();
+jidCache.set('195244918354151', '195244918354151@lid');
+jidCache.set('+195244918354151', '195244918354151@lid');
 
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -153,7 +157,24 @@ async function initStoreSocket(storeId, phoneToPair = null) {
       // Ignore status updates or group messages (unless broadcast)
       if (remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-      const senderPhone = '+' + remoteJid.replace('@s.whatsapp.net', '');
+      // Extract real phone number: check senderPn / participantPn or remoteJid
+      let cleanPhone = msg.key?.senderPn || msg.key?.participantPn || '';
+      if (!cleanPhone && remoteJid.endsWith('@s.whatsapp.net')) {
+        cleanPhone = remoteJid.replace('@s.whatsapp.net', '').split(':')[0];
+      }
+      if (!cleanPhone) {
+        cleanPhone = remoteJid;
+      }
+
+      // Store in jidCache so outgoing messages to this customer route to exact WhatsApp JID
+      const digits = cleanPhone.replace(/\D/g, '');
+      if (digits) {
+        jidCache.set(digits, remoteJid);
+        jidCache.set('+' + digits, remoteJid);
+      }
+      jidCache.set(cleanPhone, remoteJid);
+
+      const senderPhone = cleanPhone.startsWith('+') ? cleanPhone : (cleanPhone.includes('@') ? cleanPhone : '+' + cleanPhone);
       const senderName = msg.pushName || 'Customer';
 
       // Extract message text from text, extended text, or caption
@@ -306,13 +327,27 @@ app.post('/api/send', async (req, res) => {
   }
 
   try {
-    const cleanRecipient = cleanPhoneNumber(recipient_phone);
-    const jid = `${cleanRecipient}@s.whatsapp.net`;
+    const raw = String(recipient_phone).trim();
+    const digits = raw.replace(/\D/g, '');
+
+    // Check if target is in jidCache (e.g. for LID users or pre-saved mapping)
+    let jid = jidCache.get(raw) || (digits ? jidCache.get(digits) : null) || (digits ? jidCache.get('+' + digits) : null);
+
+    if (!jid) {
+      if (raw.includes('@lid')) {
+        jid = raw.replace('+', '');
+      } else if (raw.includes('@s.whatsapp.net')) {
+        jid = raw.replace('+', '');
+      } else {
+        const cleanRecipient = cleanPhoneNumber(raw);
+        jid = `${cleanRecipient}@s.whatsapp.net`;
+      }
+    }
 
     await session.sock.sendMessage(jid, { text: message_text });
-    console.log(`[Store ${store_id}] Sent message to ${recipient_phone}: "${message_text.slice(0, 40)}..."`);
+    console.log(`[Store ${store_id}] Sent message to ${jid}: "${message_text.slice(0, 40)}..."`);
 
-    res.json({ success: true, recipient: cleanRecipient });
+    res.json({ success: true, recipient: jid });
   } catch (err) {
     console.error(`[Store ${store_id}] Send message error:`, err);
     res.status(500).json({ success: false, error: err.message });
