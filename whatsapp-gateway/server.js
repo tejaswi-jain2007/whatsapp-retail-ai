@@ -112,15 +112,29 @@ async function initStoreSocket(storeId, phoneToPair = null) {
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`[Store ${storeId}] Connection closed. Reason code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+      console.log(`[Store ${storeId}] Connection closed. Status code: ${statusCode}`);
 
-      sessionInfo.status = 'disconnected';
-      if (shouldReconnect) {
-        setTimeout(() => initStoreSocket(storeId, sessionInfo.phone), 5000);
+      // If pairing code was generated, keep status as 'pairing' so UI waits for the user
+      if (sessionInfo.pairingCode && sessionInfo.status !== 'connected') {
+        sessionInfo.status = 'pairing';
+        console.log(`[Store ${storeId}] Awaiting user to enter pairing code ${sessionInfo.pairingCode} on phone...`);
+        // Keep socket warm to receive auth handshake when user enters code
+        setTimeout(() => {
+          if (sessionInfo.pairingCode && sessionInfo.status !== 'connected') {
+            initStoreSocket(storeId).catch(() => {});
+          }
+        }, 3500);
+      } else if (state.creds?.registered) {
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        sessionInfo.status = shouldReconnect ? 'reconnecting' : 'disconnected';
+        if (shouldReconnect) {
+          setTimeout(() => initStoreSocket(storeId).catch(() => {}), 5000);
+        }
+      } else {
+        sessionInfo.status = 'disconnected';
       }
     } else if (connection === 'open') {
-      console.log(`[Store ${storeId}] ✅ WhatsApp connection OPEN and LIVE!`);
+      console.log(`[Store ${storeId}] 🎉 WhatsApp connection OPEN and LIVE!`);
       sessionInfo.status = 'connected';
       sessionInfo.connectedAt = new Date();
       sessionInfo.pairingCode = null;

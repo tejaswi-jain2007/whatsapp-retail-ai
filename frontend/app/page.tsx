@@ -1572,17 +1572,17 @@ export default function DashboardPage() {
                         className={`w-3 h-3 rounded-full ${
                           gatewayStatus === "connected"
                             ? "bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50"
-                            : gatewayStatus === "pairing"
+                            : pairingCode || gatewayStatus === "pairing"
                             ? "bg-amber-400 animate-bounce"
-                            : "bg-rose-400"
+                            : "bg-slate-400"
                         }`}
                       ></span>
-                      <span className="font-bold text-sm tracking-wide capitalize">
+                      <span className="font-bold text-sm tracking-wide">
                         {gatewayStatus === "connected"
                           ? "Live & Connected"
-                          : gatewayStatus === "pairing"
-                          ? "Waiting for Code Entry"
-                          : "Disconnected"}
+                          : pairingCode || gatewayStatus === "pairing"
+                          ? "Enter Code on WhatsApp"
+                          : "Ready to Link"}
                       </span>
                     </div>
                   </div>
@@ -1683,14 +1683,21 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={handleCopyPairingCode}
-                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1.5 transition"
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 transition shadow"
                           >
-                            <Copy className="w-3.5 h-3.5" />
+                            <Copy className="w-4 h-4" />
                             <span>{isCodeCopied ? "Copied!" : "Copy Code"}</span>
                           </button>
-                          <span className="text-[11px] text-slate-400">
-                            (Valid for 2 minutes)
+                          <span className="text-xs text-amber-300 font-semibold">
+                            ⏱️ 2 minute me WhatsApp me dalein
                           </span>
+                        </div>
+
+                        <div className="mt-4 p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-left text-xs text-emerald-100">
+                          <p className="font-bold text-emerald-300 mb-1">📲 WhatsApp Me Code Kahan Daalein:</p>
+                          <p className="text-[11px] leading-relaxed">
+                            WhatsApp &gt; 3 dots (Settings) &gt; <strong>Linked Devices</strong> &gt; <strong>Link a device</strong> &gt; Niche tap karein: <em>&ldquo;Link with phone number instead&rdquo;</em>
+                          </p>
                         </div>
                       </div>
                     )}
