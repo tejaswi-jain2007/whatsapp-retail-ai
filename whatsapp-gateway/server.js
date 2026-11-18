@@ -15,7 +15,19 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const FASTAPI_WEBHOOK_URL = process.env.FASTAPI_WEBHOOK_URL || 'http://127.0.0.1:8000/api/v1/webhooks/simulate';
 
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
 app.use(cors());
+
+// Proxy all FastAPI backend requests (/api/v1) to port 8000 BEFORE body parser
+app.use(
+  '/api/v1',
+  createProxyMiddleware({
+    target: 'http://127.0.0.1:8000',
+    changeOrigin: true,
+  })
+);
+
 app.use(express.json());
 
 // In-memory registry of active store sockets
@@ -44,6 +56,31 @@ function cleanPhoneNumber(phone) {
  */
 async function initStoreSocket(storeId, phoneToPair = null) {
   const storeSessionDir = path.join(SESSIONS_DIR, storeId);
+
+  // If re-pairing, cleanly end any existing socket and purge unauthenticated session files
+  if (phoneToPair) {
+    const prev = sessions.get(storeId);
+    if (prev?.sock) {
+      try { prev.sock.end(); } catch (e) {}
+      sessions.delete(storeId);
+    }
+    if (fs.existsSync(storeSessionDir)) {
+      try {
+        const credsFile = path.join(storeSessionDir, 'creds.json');
+        let registered = false;
+        if (fs.existsSync(credsFile)) {
+          const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+          registered = !!creds.registered;
+        }
+        if (!registered) {
+          fs.rmSync(storeSessionDir, { recursive: true, force: true });
+        }
+      } catch (e) {
+        fs.rmSync(storeSessionDir, { recursive: true, force: true });
+      }
+    }
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(storeSessionDir);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -287,3 +324,4 @@ app.listen(PORT, () => {
   console.log(`  Supports 8-digit Pairing Code (No Laptop / No QR needed)`);
   console.log(`=======================================================`);
 });
+

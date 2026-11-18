@@ -25,6 +25,7 @@ import {
   Copy,
   ShieldCheck,
   Zap,
+  Menu,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -32,6 +33,7 @@ type Tab = "orders" | "lists" | "products" | "qr_verify" | "analytics" | "simula
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("orders");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [store, setStore] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -140,20 +142,25 @@ export default function DashboardPage() {
 
   const handleRequestPairingCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pairingPhone.trim() || !store?.id) return;
+    const storeId = store?.id || "s0000001-0000-0000-0000-000000000001";
+    if (!pairingPhone.trim()) {
+      setPairingError("Kripya apna WhatsApp mobile number dalein");
+      return;
+    }
     setIsGeneratingPairing(true);
     setPairingError(null);
     setPairingCode(null);
     try {
-      const res = await api.requestPairingCode(store.id, pairingPhone);
-      if (res.success && res.pairing_code) {
+      const res = await api.requestPairingCode(storeId, pairingPhone);
+      if (res && res.success && res.pairing_code) {
         setPairingCode(res.pairing_code);
         setGatewayStatus("pairing");
       } else {
-        setPairingError(res.error || "Failed to generate pairing code");
+        setPairingError(res?.error || "Pairing code generate nahi ho paya. Kripya number check karein aur dobara try karein.");
       }
     } catch (err: any) {
-      setPairingError(err.message || "Failed to connect to WhatsApp Gateway (Port 3001)");
+      console.error("Pairing request failed:", err);
+      setPairingError(err.message || "WhatsApp Gateway connect nahi ho paya. Kripya check karein ki server live hai.");
     } finally {
       setIsGeneratingPairing(false);
     }
@@ -377,8 +384,94 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-slate-200 flex flex-col justify-between shrink-0">
+      {/* Mobile Drawer Backdrop & Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden bg-slate-900/70 backdrop-blur-sm flex">
+          <div className="w-4/5 max-w-xs bg-slate-900 text-slate-200 h-full flex flex-col justify-between p-4 animate-in slide-in-from-left duration-200 shadow-2xl">
+            <div>
+              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-base text-white">KiranaAI</h2>
+                    <p className="text-[10px] text-slate-400">Retail OS</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Mobile Store info */}
+              {store && (
+                <div className="mt-3 p-3 bg-slate-800/80 rounded-xl text-xs">
+                  <p className="text-[10px] text-emerald-400 font-semibold uppercase">My Store</p>
+                  <p className="font-bold text-white text-xs mt-0.5">{store.store_name}</p>
+                  <p className="font-mono text-[11px] text-slate-300">{store.phone}</p>
+                </div>
+              )}
+
+              {/* Mobile Navigation Links */}
+              <nav className="mt-4 space-y-1">
+                {[
+                  { id: "orders", label: "Orders", icon: ShoppingBag, count: orders.length },
+                  { id: "lists", label: "Customer Lists (ग्राहक लिस्ट)", icon: FileText, count: orders.length },
+                  { id: "pairing", label: "Link Phone (No Laptop)", icon: Smartphone, highlight: true },
+                  { id: "products", label: "Catalogue & Prices", icon: Package },
+                  { id: "qr_verify", label: "QR Pickup Scanner", icon: QrCode },
+                  { id: "analytics", label: "Store Analytics", icon: BarChart3 },
+                  { id: "simulate", label: "WhatsApp Simulator", icon: MessageSquare, warning: true },
+                ].map((item: any) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
+                        isActive
+                          ? "bg-emerald-600 text-white font-bold"
+                          : item.highlight
+                          ? "text-emerald-400 bg-emerald-950/30 border border-emerald-500/20"
+                          : "text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.count !== undefined && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                          {item.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span>Ramesh Gupta</span>
+              <button onClick={refreshCurrentData} className="p-1 hover:text-white">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
+        </div>
+      )}
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-64 bg-slate-900 text-slate-200 flex-col justify-between shrink-0">
         <div>
           {/* Logo */}
           <div className="p-5 border-b border-slate-800 flex items-center space-x-3">
@@ -566,28 +659,37 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-y-auto">
         {/* Top Navbar */}
-        <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0">
-          <div className="flex items-center space-x-3">
-            <h2 className="text-xl font-bold text-slate-800 capitalize">
+        <header className="h-14 sm:h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center space-x-2.5">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 transition border border-slate-200"
+              title="Open Navigation Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-sm sm:text-lg md:text-xl font-bold text-slate-800 truncate">
               {activeTab === "orders" && "Live Orders"}
-              {activeTab === "lists" && "Customer Shopping Lists (ग्राहक ऑर्डर्स / लिस्ट)"}
-              {activeTab === "products" && "Product Catalogue & Pricing"}
+              {activeTab === "lists" && "Customer Lists (ग्राहक लिस्ट)"}
+              {activeTab === "pairing" && "Link WhatsApp (No Laptop)"}
+              {activeTab === "products" && "Catalogue & Pricing"}
               {activeTab === "qr_verify" && "QR Pickup Verification"}
-              {activeTab === "analytics" && "Store Performance Analytics"}
-              {activeTab === "simulate" && "WhatsApp Customer Simulator"}
+              {activeTab === "analytics" && "Store Analytics"}
+              {activeTab === "simulate" && "WhatsApp Simulator"}
             </h2>
           </div>
 
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>FastAPI Backend Live</span>
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <div className="flex items-center space-x-1.5 sm:space-x-2 text-[10px] sm:text-xs bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="hidden sm:inline">FastAPI Backend Live</span>
+              <span className="sm:hidden">Live</span>
             </div>
           </div>
         </header>
 
         {/* Tab Content */}
-        <div className="p-6 flex-1">
+        <div className="p-3 sm:p-6 pb-24 md:pb-6 flex-1">
           {/* TAB 1: ORDERS */}
           {activeTab === "orders" && (
             <div>
@@ -1922,6 +2024,48 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex items-center justify-around py-1.5 px-2 shadow-lg">
+        <button
+          onClick={() => setActiveTab("orders")}
+          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] transition ${
+            activeTab === "orders" ? "text-emerald-700 font-bold" : "text-slate-500"
+          }`}
+        >
+          <ShoppingBag className="w-5 h-5 mb-0.5" />
+          <span>Orders</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("lists")}
+          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] transition ${
+            activeTab === "lists" ? "text-emerald-700 font-bold" : "text-slate-500"
+          }`}
+        >
+          <FileText className="w-5 h-5 mb-0.5" />
+          <span>ग्राहक लिस्ट</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("pairing")}
+          className={`flex flex-col items-center py-1 px-3 rounded-xl text-[10px] font-bold transition ${
+            activeTab === "pairing"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-emerald-700 bg-emerald-50 border border-emerald-300"
+          }`}
+        >
+          <Smartphone className="w-5 h-5 mb-0.5" />
+          <span>Link Phone</span>
+        </button>
+
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium text-slate-500"
+        >
+          <Menu className="w-5 h-5 mb-0.5" />
+          <span>Menu</span>
+        </button>
+      </div>
     </div>
   );
 }
