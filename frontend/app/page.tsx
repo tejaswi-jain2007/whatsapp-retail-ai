@@ -66,18 +66,16 @@ export default function DashboardPage() {
   const initApp = async () => {
     setLoading(true);
     try {
-      // Auto-login with default demo credentials if needed
-      let token = localStorage.getItem("token");
-      if (!token) {
+      let stores = await api.getStores();
+      if (!Array.isArray(stores) || stores.length === 0) {
         const loginRes = await api.login("ramesh@guptastores.com", "kirana123");
         if (loginRes.access_token) {
           localStorage.setItem("token", loginRes.access_token);
         }
+        stores = await api.getStores();
       }
 
-      // Fetch store
-      const stores = await api.getStores();
-      if (stores && stores.length > 0) {
+      if (Array.isArray(stores) && stores.length > 0) {
         setStore(stores[0]);
         await loadStoreData(stores[0].id);
       }
