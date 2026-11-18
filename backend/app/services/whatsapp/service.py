@@ -169,17 +169,29 @@ class WhatsAppWebhookService:
                 if c.id not in related_customer_ids:
                     related_customer_ids.append(c.id)
 
-        # Prioritize order waiting for CUSTOMER_CONFIRMATION first
+        # Prioritize order waiting for CUSTOMER_CONFIRMATION with real items / grand_total > 0
         pending_order = (
             db.query(Order)
             .filter(
                 Order.store_id == store.id,
                 Order.customer_id.in_(related_customer_ids),
                 Order.status == "CUSTOMER_CONFIRMATION",
+                Order.grand_total > Decimal("0.00"),
             )
             .order_by(Order.created_at.desc())
             .first()
         )
+        if not pending_order:
+            pending_order = (
+                db.query(Order)
+                .filter(
+                    Order.store_id == store.id,
+                    Order.customer_id.in_(related_customer_ids),
+                    Order.status == "CUSTOMER_CONFIRMATION",
+                )
+                .order_by(Order.created_at.desc())
+                .first()
+            )
         if not pending_order:
             pending_order = (
                 db.query(Order)
@@ -295,17 +307,29 @@ class WhatsAppWebhookService:
                     if c.id not in related_customer_ids:
                         related_customer_ids.append(c.id)
 
-            # Prioritize CUSTOMER_CONFIRMATION first
+            # Prioritize CUSTOMER_CONFIRMATION with real items / grand_total > 0
             order = (
                 db.query(Order)
                 .filter(
                     Order.store_id == store.id,
                     Order.customer_id.in_(related_customer_ids),
                     Order.status == "CUSTOMER_CONFIRMATION",
+                    Order.grand_total > Decimal("0.00"),
                 )
                 .order_by(Order.created_at.desc())
                 .first()
             )
+            if not order:
+                order = (
+                    db.query(Order)
+                    .filter(
+                        Order.store_id == store.id,
+                        Order.customer_id.in_(related_customer_ids),
+                        Order.status == "CUSTOMER_CONFIRMATION",
+                    )
+                    .order_by(Order.created_at.desc())
+                    .first()
+                )
             if not order:
                 order = (
                     db.query(Order)
@@ -319,6 +343,11 @@ class WhatsAppWebhookService:
                 )
 
         if not order:
+            await self.client.send_text_message(
+                store.whatsapp_phone_number_id or "",
+                customer.phone,
+                "Aapka koi pending order confirm karne ke liye nahi mila. Saman mangwane ke liye list bhejein.",
+            )
             return
 
         normalized = text_content.lower().strip()
