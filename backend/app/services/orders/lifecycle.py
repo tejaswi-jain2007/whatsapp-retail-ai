@@ -12,12 +12,12 @@ from app.services.billing.generator import billing_service
 
 # Valid state transitions graph
 VALID_TRANSITIONS = {
-    "NEW": ["AI_PROCESSING", "NEEDS_CLARIFICATION", "SHOPKEEPER_REVIEW", "CANCELLED"],
-    "AI_PROCESSING": ["NEEDS_CLARIFICATION", "SHOPKEEPER_REVIEW", "CANCELLED"],
-    "NEEDS_CLARIFICATION": ["SHOPKEEPER_REVIEW", "CANCELLED", "REJECTED"],
-    "SHOPKEEPER_REVIEW": ["CUSTOMER_CONFIRMATION", "CONFIRMED", "CANCELLED", "REJECTED"],
-    "CUSTOMER_CONFIRMATION": ["CONFIRMED", "SHOPKEEPER_REVIEW", "CANCELLED", "REJECTED", "EXPIRED"],
-    "CONFIRMED": ["PACKING", "CANCELLED"],
+    "NEW": ["AI_PROCESSING", "NEEDS_CLARIFICATION", "SHOPKEEPER_REVIEW", "CONFIRMED", "READY_FOR_PICKUP", "CANCELLED"],
+    "AI_PROCESSING": ["NEEDS_CLARIFICATION", "SHOPKEEPER_REVIEW", "CONFIRMED", "READY_FOR_PICKUP", "CANCELLED"],
+    "NEEDS_CLARIFICATION": ["SHOPKEEPER_REVIEW", "CONFIRMED", "READY_FOR_PICKUP", "CANCELLED", "REJECTED"],
+    "SHOPKEEPER_REVIEW": ["CUSTOMER_CONFIRMATION", "CONFIRMED", "READY_FOR_PICKUP", "CANCELLED", "REJECTED"],
+    "CUSTOMER_CONFIRMATION": ["CONFIRMED", "SHOPKEEPER_REVIEW", "READY_FOR_PICKUP", "CANCELLED", "REJECTED", "EXPIRED"],
+    "CONFIRMED": ["PACKING", "READY_FOR_PICKUP", "CANCELLED"],
     "PACKING": ["PARTIALLY_PACKED", "READY_FOR_PICKUP", "CANCELLED"],
     "PARTIALLY_PACKED": ["PACKING", "READY_FOR_PICKUP", "CANCELLED"],
     "READY_FOR_PICKUP": ["COLLECTED", "CANCELLED"],
@@ -205,6 +205,122 @@ class OrderLifecycleService:
         db.refresh(order)
         db.refresh(item)
         return order, item
+
+    async def mark_order_packed(
+        self,
+        db: Session,
+        order: Order,
+        actor_id: Optional[str] = None,
+    ) -> Order:
+        """
+        One-click mark entire order as PACKED:
+        1. Sets all items to PACKED.
+        2. Sets status to READY_FOR_PICKUP.
+        3. Generates QR pickup token.
+        4. Sends WhatsApp notification to customer with pickup code and store details.
+        5. Sets pickup_reminders_count = 1 and last_reminder_at = now.
+        """
+        for item in order.items:
+            item.packing_status = "PACKED"
+            item.packed_quantity = item.quantity
+            item.packed_at = datetime.now(timezone.utc)
+            item.packed_by = actor_id
+
+        self.transition_status(
+            db,
+            order,
+            "READY_FOR_PICKUP",
+            "Order fully packed by shopkeeper",
+            actor_id,
+        )
+
+        raw_token, qr_data_url, _ = qr_service.generate_pickup_token(db, order)
+
+        store_phone_id = order.store.whatsapp_phone_number_id or ""
+        cust_phone = order.customer.phone
+        store_name = order.store.store_name
+        cust_name = order.customer.name or "Grahak"
+
+        pickup_msg = (
+            f"🎉 *Aapka Order #{order.order_number} Pack Ho Gaya Hai!*\n\n"
+            f"Namaste {cust_name} Ji! {store_name} par aapka saman bilkul tayyar rakha hai. ✅\n\n"
+            f"📦 *Total Saman:* {len(order.items)} items\n"
+            f"💵 *Total Bill:* ₹{order.grand_total:.2f}\n"
+            f"🎫 *Pickup Token:* *{raw_token}*\n\n"
+            f"📍 Kripya store par aakar apna order collect kar lijiye. Dhanyawaad! 🙏"
+        )
+
+        db.add(
+            Notification(
+                order_id=order.id,
+                channel="whatsapp",
+                message_type="ORDER_READY",
+                recipient_phone=cust_phone,
+                payload=pickup_msg,
+                status="SENT",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        order.pickup_reminders_count = 1
+        order.last_reminder_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(order)
+
+        await whatsapp_client.send_text_message(store_phone_id, cust_phone, pickup_msg)
+        return order
+
+    async def send_pickup_reminder(
+        self,
+        db: Session,
+        order: Order,
+        actor_id: Optional[str] = None,
+    ) -> Order:
+        """
+        Sends an automated pickup reminder to customer (up to 4 times a day).
+        """
+        from app.models.entities import QrToken
+        token_obj = (
+            db.query(QrToken)
+            .filter(QrToken.order_id == order.id, QrToken.status == "ACTIVE")
+            .first()
+        )
+        raw_token = token_obj.token_hash[:8].upper() if token_obj else "READY"
+
+        current_count = (order.pickup_reminders_count or 0) + 1
+        store_phone_id = order.store.whatsapp_phone_number_id or ""
+        cust_phone = order.customer.phone
+        store_name = order.store.store_name
+        cust_name = order.customer.name or "Grahak"
+
+        reminder_msg = (
+            f"⏰ *Pickup Reminder #{order.order_number} ({current_count}/4)*\n\n"
+            f"Namaste {cust_name} Ji! {store_name} se reminder:\n"
+            f"Aapka order pack ho kar dukan par aapka intezaar kar raha hai. 🛍️\n\n"
+            f"📦 Items: {len(order.items)} items | 💵 Bill: ₹{order.grand_total:.2f}\n"
+            f"🎫 Pickup Code: *{raw_token}*\n\n"
+            f"📍 Kripya dukan band hone se pehle aakar apna samaan le jayein. Dhanyawaad!"
+        )
+
+        db.add(
+            Notification(
+                order_id=order.id,
+                channel="whatsapp",
+                message_type="PICKUP_REMINDER",
+                recipient_phone=cust_phone,
+                payload=reminder_msg,
+                status="SENT",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        order.pickup_reminders_count = current_count
+        order.last_reminder_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(order)
+
+        await whatsapp_client.send_text_message(store_phone_id, cust_phone, reminder_msg)
+        return order
 
 
 order_lifecycle_service = OrderLifecycleService()

@@ -26,6 +26,8 @@ import {
   ShieldCheck,
   Zap,
   Menu,
+  Bell,
+  Phone,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -133,6 +135,9 @@ export default function DashboardPage() {
         setGatewayStatus(res.status);
         if (res.pairing_code && !pairingCode) {
           setPairingCode(res.pairing_code);
+        }
+        if (res.phone) {
+          setStore((prev: any) => (prev && prev.phone !== res.phone ? { ...prev, phone: res.phone } : prev));
         }
       }
     } catch (e) {
@@ -277,6 +282,40 @@ export default function DashboardPage() {
       refreshCurrentData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleMarkOrderPacked = async (orderId: string) => {
+    try {
+      const res = await api.markOrderPacked(orderId);
+      if (res && res.id) {
+        setSimSuccess("🎉 Order marked as PACKED! WhatsApp ready notification sent to customer.");
+        setTimeout(() => setSimSuccess(null), 5000);
+        if (selectedOrder && selectedOrder.id === orderId) {
+          setSelectedOrder(res);
+        }
+        refreshCurrentData();
+      }
+    } catch (err: any) {
+      console.error("Mark packed failed:", err);
+      alert("Error marking packed: " + (err.message || "Could not reach server"));
+    }
+  };
+
+  const handleSendOrderReminder = async (orderId: string) => {
+    try {
+      const res = await api.sendOrderReminder(orderId);
+      if (res && res.id) {
+        setSimSuccess(`🔔 Pickup Reminder (${res.pickup_reminders_count || 1}/4) sent to customer on WhatsApp!`);
+        setTimeout(() => setSimSuccess(null), 5000);
+        if (selectedOrder && selectedOrder.id === orderId) {
+          setSelectedOrder(res);
+        }
+        refreshCurrentData();
+      }
+    } catch (err: any) {
+      console.error("Reminder failed:", err);
+      alert("Error sending reminder: " + (err.message || "Could not reach server"));
     }
   };
 
@@ -861,21 +900,51 @@ export default function DashboardPage() {
                             ) && (
                               <button
                                 onClick={() => handleOpenReview(order)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm"
+                                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm"
                               >
                                 <Package className="w-3.5 h-3.5" />
-                                <span>Pack Items</span>
+                                <span>Checklist</span>
+                              </button>
+                            )}
+
+                            {/* Single-tap Mark as Packed button */}
+                            {["NEW", "SHOPKEEPER_REVIEW", "NEEDS_CLARIFICATION", "CONFIRMED", "PACKING", "PARTIALLY_PACKED"].includes(
+                              order.status
+                            ) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMarkOrderPacked(order.id);
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm"
+                                title="Mark all items packed & send WhatsApp ready message"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Mark Packed</span>
                               </button>
                             )}
 
                             {order.status === "READY_FOR_PICKUP" && (
-                              <button
-                                onClick={() => handleOpenReview(order)}
-                                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
-                              >
-                                <QrCode className="w-3.5 h-3.5" />
-                                <span>Pickup QR</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSendOrderReminder(order.id);
+                                  }}
+                                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm"
+                                  title="Send WhatsApp pickup reminder (up to 4 times a day)"
+                                >
+                                  <Bell className="w-3.5 h-3.5" />
+                                  <span>Remind ({order.pickup_reminders_count || 1}/4)</span>
+                                </button>
+                                <button
+                                  onClick={() => handleOpenReview(order)}
+                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                                >
+                                  <QrCode className="w-3.5 h-3.5" />
+                                  <span>Pickup QR</span>
+                                </button>
+                              </>
                             )}
 
                             {order.status === "COLLECTED" && (
@@ -1052,11 +1121,31 @@ export default function DashboardPage() {
                               )}
                             </button>
 
+                            {order.status !== "READY_FOR_PICKUP" && order.status !== "COLLECTED" ? (
+                              <button
+                                onClick={() => handleMarkOrderPacked(order.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
+                                title="Mark order packed & send WhatsApp ready notification"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Mark Packed</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSendOrderReminder(order.id)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
+                                title="Send WhatsApp pickup reminder"
+                              >
+                                <Bell className="w-3.5 h-3.5" />
+                                <span>Remind ({order.pickup_reminders_count || 1}/4)</span>
+                              </button>
+                            )}
+
                             <button
                               onClick={() => handleOpenReview(order)}
-                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
                             >
-                              <span>Review & Bill</span>
+                              <span>Details</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -2038,10 +2127,30 @@ export default function DashboardPage() {
                 ) && (
                   <button
                     onClick={handleSaveReviewAndSend}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center space-x-2"
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
                   >
                     <Send className="w-4 h-4" />
-                    <span>Send Order Summary to Customer</span>
+                    <span>Send Bill to Customer</span>
+                  </button>
+                )}
+
+                {selectedOrder.status !== "READY_FOR_PICKUP" && selectedOrder.status !== "COLLECTED" && (
+                  <button
+                    onClick={() => handleMarkOrderPacked(selectedOrder.id)}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center space-x-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Mark as Packed (पैक हो गया)</span>
+                  </button>
+                )}
+
+                {selectedOrder.status === "READY_FOR_PICKUP" && (
+                  <button
+                    onClick={() => handleSendOrderReminder(selectedOrder.id)}
+                    className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 transition flex items-center space-x-1.5"
+                  >
+                    <Bell className="w-4 h-4" />
+                    <span>Send Reminder ({selectedOrder.pickup_reminders_count || 1}/4 Sent)</span>
                   </button>
                 )}
               </div>

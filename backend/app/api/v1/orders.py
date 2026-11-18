@@ -197,6 +197,47 @@ def confirm_order(
     return updated
 
 
+@router.post("/orders/{order_id}/mark-packed", response_model=OrderResponse)
+async def mark_order_packed(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Shopkeeper clicks "Mark as Packed":
+    Sets all items to PACKED, sets order status to READY_FOR_PICKUP,
+    generates QR token, and sends WhatsApp pickup notification to customer.
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    verify_store_access(order.store_id, current_user, db)
+
+    updated = await order_lifecycle_service.mark_order_packed(db, order, actor_id=current_user.id)
+    return updated
+
+
+@router.post("/orders/{order_id}/send-reminder", response_model=OrderResponse)
+async def send_order_reminder(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Sends an automated pickup reminder to customer (e.g. 1st, 2nd, 3rd, 4th reminder of the day).
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    verify_store_access(order.store_id, current_user, db)
+
+    if order.status != "READY_FOR_PICKUP":
+        raise HTTPException(status_code=400, detail="Reminders can only be sent for packed orders ready for pickup.")
+
+    updated = await order_lifecycle_service.send_pickup_reminder(db, order, actor_id=current_user.id)
+    return updated
+
+
 @router.patch("/orders/{order_id}/status", response_model=OrderResponse)
 def update_order_status(
     order_id: str,

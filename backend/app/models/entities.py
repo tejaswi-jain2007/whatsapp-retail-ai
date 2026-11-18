@@ -152,6 +152,8 @@ class Order(Base):
     tax = Column(Numeric(12, 2), default=0.00, nullable=False)
     grand_total = Column(Numeric(12, 2), default=0.00, nullable=False)
     clarification_notes = Column(Text, nullable=True)
+    pickup_reminders_count = Column(Integer, default=0, nullable=True)
+    last_reminder_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +41,7 @@ def seed_initial_demo_data(db: Session):
             name="Ramesh Gupta",
             email="ramesh@guptastores.com",
             password_hash=hash_password("kirana123"),
-            phone="+919876543210",
+            phone="+919479550330",
             role="shopkeeper",
             is_active=True,
         )
@@ -56,7 +57,7 @@ def seed_initial_demo_data(db: Session):
             category_id=cat.id if cat else None,
             store_name="Gupta Kirana & General Store",
             address="Shop No 14, Main Bazaar, Sector 12, New Delhi",
-            phone="+919876543210",
+            phone="+919479550330",
             whatsapp_phone_number_id="WA_PHONE_ID_1001",
             status="active",
         )
@@ -135,13 +136,45 @@ def seed_initial_demo_data(db: Session):
         db.commit()
 
 
+async def periodic_pickup_reminder_worker():
+    """
+    Checks orders in READY_FOR_PICKUP status.
+    Automatically sends pickup reminder up to 4 times a day if customer has not collected.
+    """
+    while True:
+        try:
+            await asyncio.sleep(60 * 10)  # Check every 10 minutes
+            with SessionLocal() as db:
+                from app.models.entities import Order
+                from app.services.orders.lifecycle import order_lifecycle_service
+                from datetime import datetime, timezone, timedelta
+
+                now = datetime.now(timezone.utc)
+                orders = db.query(Order).filter(Order.status == "READY_FOR_PICKUP").all()
+                for o in orders:
+                    count = o.pickup_reminders_count or 0
+                    if count >= 4:
+                        continue
+                    last = o.last_reminder_at
+                    # Send next reminder if at least 3 hours passed or next day
+                    if not last or (now - last) >= timedelta(hours=3):
+                        await order_lifecycle_service.send_pickup_reminder(db, o, actor_id="SYSTEM_AUTO_REMINDER")
+                        print(f"[AutoReminder] Sent pickup reminder {count+1}/4 for order {o.order_number}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[AutoReminder] Periodic reminder error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure database schema is created
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_initial_demo_data(db)
+    reminder_task = asyncio.create_task(periodic_pickup_reminder_worker())
     yield
+    reminder_task.cancel()
 
 
 app = FastAPI(

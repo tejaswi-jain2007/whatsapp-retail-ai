@@ -82,6 +82,8 @@ class OrderResponse(BaseModel):
     tax: Decimal
     grand_total: Decimal
     clarification_notes: Optional[str]
+    pickup_reminders_count: Optional[int] = 0
+    last_reminder_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     customer: Optional[CustomerResponse] = None

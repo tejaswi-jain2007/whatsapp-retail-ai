@@ -142,6 +142,11 @@ async function initStoreSocket(storeId, phoneToPair = null) {
       sessionInfo.status = 'connected';
       sessionInfo.connectedAt = new Date();
       sessionInfo.pairingCode = null;
+      if (sock.user?.id) {
+        const rawPn = sock.user.id.split(':')[0].split('@')[0];
+        sessionInfo.phone = '+' + rawPn;
+        console.log(`[Store ${storeId}] Authenticated WhatsApp phone: ${sessionInfo.phone}`);
+      }
     }
   });
 
@@ -301,10 +306,12 @@ app.get('/api/status/:store_id', (req, res) => {
     });
   }
 
+  const detectedPhone = session.phone || (session.sock?.user?.id ? '+' + session.sock.user.id.split(':')[0].split('@')[0] : null);
+
   res.json({
     store_id,
     status: session.status,
-    phone: session.phone,
+    phone: detectedPhone,
     pairing_code: session.pairingCode,
     connected_at: session.connectedAt,
   });
