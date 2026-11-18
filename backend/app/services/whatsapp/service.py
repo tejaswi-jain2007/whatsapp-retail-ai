@@ -1,3 +1,4 @@
+import re
 import random
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -168,6 +169,7 @@ class WhatsAppWebhookService:
                 if c.id not in related_customer_ids:
                     related_customer_ids.append(c.id)
 
+        # Prioritize order waiting for CUSTOMER_CONFIRMATION first
         pending_order = (
             db.query(Order)
             .filter(
@@ -178,6 +180,17 @@ class WhatsAppWebhookService:
             .order_by(Order.created_at.desc())
             .first()
         )
+        if not pending_order:
+            pending_order = (
+                db.query(Order)
+                .filter(
+                    Order.store_id == store.id,
+                    Order.customer_id.in_(related_customer_ids),
+                    Order.status.in_(["SHOPKEEPER_REVIEW", "NEW", "NEEDS_CLARIFICATION"]),
+                )
+                .order_by(Order.created_at.desc())
+                .first()
+            )
 
         if pending_order and (button_reply_id or self._is_confirmation_reply(text_content)):
             await self._process_customer_confirmation_reply(
@@ -187,6 +200,28 @@ class WhatsAppWebhookService:
             db.commit()
             return
         elif button_reply_id or self._is_confirmation_reply(text_content):
+            # Check if customer has an already confirmed / ready order
+            active_order = (
+                db.query(Order)
+                .filter(
+                    Order.store_id == store.id,
+                    Order.customer_id.in_(related_customer_ids),
+                    Order.status.in_(["CONFIRMED", "PACKING", "PARTIALLY_PACKED", "READY_FOR_PICKUP"]),
+                )
+                .order_by(Order.created_at.desc())
+                .first()
+            )
+            if active_order:
+                pin = active_order.order_number.split("-")[-1]
+                status_desc = "pack ho kar tayyar hai" if active_order.status == "READY_FOR_PICKUP" else "pack ho raha hai"
+                reassure_msg = f"Aapka order #{active_order.order_number} pehle se confirm hai aur dukan par {status_desc}."
+                if active_order.status == "READY_FOR_PICKUP":
+                    reassure_msg += f"\n🔢 Pickup PIN: *{pin}*"
+                await self.client.send_text_message(store.whatsapp_phone_number_id or "", customer.phone, reassure_msg)
+                event_record.processing_status = "PROCESSED"
+                db.commit()
+                return
+
             await self._process_customer_confirmation_reply(
                 db, store, customer, text_content, button_reply_id
             )
@@ -214,19 +249,35 @@ class WhatsAppWebhookService:
 
     def _is_confirmation_reply(self, text: str) -> bool:
         normalized = text.lower().strip()
-        # Direct short answers: 1, 2, yes, ok, haan, etc.
-        if normalized in [
-            "1", "2", "yes", "y", "ok", "k", "haan", "ha", "theek", "done",
-            "confirm", "confirmed", "sahi", "pack", "bhej", "accept", "sure",
-            "cancel", "no", "n", "nhi", "nahin", "modify"
-        ]:
+        cleaned = re.sub(r'[^\w\s]', '', normalized).strip()
+
+        # 1. Direct tokens
+        direct_tokens = {
+            "1", "2", "yes", "y", "ok", "okay", "k", "done", "sure", "accept",
+            "confirm", "confirmed", "sahi", "theek", "thik", "pack", "bhej",
+            "no", "n", "nahi", "nahin", "nhi", "cancel", "radd", "modify",
+            "ha", "haa", "haaa", "haaaa", "haan", "haaan", "han", "haji",
+            "ha ji", "haa ji", "haan ji", "sahi hai", "theek hai", "thik hai"
+        }
+        if cleaned in direct_tokens or normalized in direct_tokens:
             return True
-        confirm_words = [
-            "confirm", "yes", "ok", "haan", "ha ji", "sahi hai", "theek hai",
-            "theek h", "pack kar", "pack kardo", "bhej do", "bhej dena",
+
+        # 2. Regex for any variation of ha/haa/haan with optional 'ji'
+        if re.fullmatch(r'h[a]+[n]?(?:\s*ji)?', cleaned):
+            return True
+
+        # 3. Number prefix answers like "1.", "1 - yes", "1 confirm", "1 haan"
+        if re.match(r'^[12]\b', cleaned):
+            return True
+
+        # 4. Phrase containment
+        confirm_phrases = [
+            "confirm", "yes", "ok", "haan", "haa", "ha ji", "sahi hai", "sahi h",
+            "theek hai", "theek h", "thik hai", "thik h", "pack kar", "pack kardo",
+            "pack krdo", "pack kr dena", "bhej do", "bhej dena", "kar do", "kardo",
             "cancel", "radd", "modify", "badal do"
         ]
-        return any(w in normalized for w in confirm_words)
+        return any(p in cleaned for p in confirm_phrases)
 
     async def _process_customer_confirmation_reply(
         self,
@@ -244,6 +295,7 @@ class WhatsAppWebhookService:
                     if c.id not in related_customer_ids:
                         related_customer_ids.append(c.id)
 
+            # Prioritize CUSTOMER_CONFIRMATION first
             order = (
                 db.query(Order)
                 .filter(
@@ -254,6 +306,17 @@ class WhatsAppWebhookService:
                 .order_by(Order.created_at.desc())
                 .first()
             )
+            if not order:
+                order = (
+                    db.query(Order)
+                    .filter(
+                        Order.store_id == store.id,
+                        Order.customer_id.in_(related_customer_ids),
+                        Order.status.in_(["SHOPKEEPER_REVIEW", "NEW", "NEEDS_CLARIFICATION"]),
+                    )
+                    .order_by(Order.created_at.desc())
+                    .first()
+                )
 
         if not order:
             return
@@ -307,11 +370,12 @@ class WhatsAppWebhookService:
             )
         else:
             # Confirm
+            previous_status = order.status
             order.status = "CONFIRMED"
             db.add(
                 OrderEvent(
                     order_id=order.id,
-                    from_status="CUSTOMER_CONFIRMATION",
+                    from_status=previous_status,
                     to_status="CONFIRMED",
                     reason="Customer confirmed via WhatsApp",
                     actor_type="customer",
