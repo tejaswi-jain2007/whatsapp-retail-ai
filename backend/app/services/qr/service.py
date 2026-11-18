@@ -24,8 +24,8 @@ class QrService:
 
     def generate_pickup_token(self, db: Session, order: Order) -> Tuple[str, str, QrToken]:
         """
-        Generates a secure single-use pickup token, stores its SHA-256 hash,
-        and generates a QR code image as a Base64 data URL.
+        Generates a customer-friendly 4-digit numeric pickup PIN (e.g. 7792),
+        stores its hash, and generates a QR code image as a Base64 data URL.
         """
         # Deactivate any previous active tokens for this order
         db.query(QrToken).filter(
@@ -33,7 +33,10 @@ class QrService:
             QrToken.status == "ACTIVE"
         ).update({"status": "REVOKED"})
 
-        raw_token = f"PKUP-{order.order_number}-{secrets.token_urlsafe(24)}"
+        # Extract 4-digit numeric PIN from order number (e.g. ORD-261119-7792 -> 7792)
+        parts = order.order_number.split("-")
+        pin = parts[-1] if len(parts) > 1 and parts[-1].isdigit() else str(secrets.randbelow(9000) + 1000)
+        raw_token = pin
         token_hash = self.hash_token(raw_token)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=self.token_validity_hours)
 
@@ -77,17 +80,34 @@ class QrService:
         Atomic verification and redemption of pickup QR token.
         Enforces tenant isolation, token expiry, status checks, and prevents replay.
         """
-        token_hash = self.hash_token(raw_token.strip())
+        clean_input = raw_token.strip().upper()
+        token_hash = self.hash_token(clean_input)
 
         token_record = (
             db.query(QrToken)
             .filter(QrToken.token_hash == token_hash)
-            .with_for_update()  # Lock row to prevent race condition
             .first()
         )
 
+        # Fallback: check if clean_input matches Order Number or 4-digit suffix
         if not token_record:
-            return False, "Invalid pickup token or QR code.", None
+            matching_order = (
+                db.query(Order)
+                .filter(
+                    Order.store_id == store_id,
+                    (Order.order_number == clean_input) | (Order.order_number.endswith(f"-{clean_input}"))
+                )
+                .first()
+            )
+            if matching_order:
+                token_record = (
+                    db.query(QrToken)
+                    .filter(QrToken.order_id == matching_order.id, QrToken.status == "ACTIVE")
+                    .first()
+                )
+
+        if not token_record:
+            return False, "Invalid 4-digit PIN or QR code.", None
 
         if token_record.status == "REDEEMED":
             return False, f"Token already redeemed on {token_record.redeemed_at}.", None

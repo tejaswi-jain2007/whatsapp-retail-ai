@@ -241,13 +241,16 @@ class OrderLifecycleService:
         store_name = order.store.store_name
         cust_name = order.customer.name or "Grahak"
 
+        parts = order.order_number.split("-")
+        pin = parts[-1] if len(parts) > 1 else raw_token
+
         pickup_msg = (
             f"🎉 *Aapka Order #{order.order_number} Pack Ho Gaya Hai!*\n\n"
             f"Namaste {cust_name} Ji! {store_name} par aapka saman bilkul tayyar rakha hai. ✅\n\n"
             f"📦 *Total Saman:* {len(order.items)} items\n"
             f"💵 *Total Bill:* ₹{order.grand_total:.2f}\n"
-            f"🎫 *Pickup Token:* *{raw_token}*\n\n"
-            f"📍 Kripya store par aakar apna order collect kar lijiye. Dhanyawaad! 🙏"
+            f"🔢 *Pickup PIN:* *{pin}*\n\n"
+            f"📍 Dukan par jaakar sirf yeh 4-digit PIN (*{pin}*) batayein aur apna order le jayein! Dhanyawaad! 🙏"
         )
 
         db.add(
@@ -280,26 +283,22 @@ class OrderLifecycleService:
         Sends an automated pickup reminder to customer (up to 4 times a day).
         """
         from app.models.entities import QrToken
-        token_obj = (
-            db.query(QrToken)
-            .filter(QrToken.order_id == order.id, QrToken.status == "ACTIVE")
-            .first()
-        )
-        raw_token = token_obj.token_hash[:8].upper() if token_obj else "READY"
-
         current_count = (order.pickup_reminders_count or 0) + 1
         store_phone_id = order.store.whatsapp_phone_number_id or ""
         cust_phone = order.customer.phone
         store_name = order.store.store_name
         cust_name = order.customer.name or "Grahak"
 
+        parts = order.order_number.split("-")
+        pin = parts[-1] if len(parts) > 1 else "READY"
+
         reminder_msg = (
             f"⏰ *Pickup Reminder #{order.order_number} ({current_count}/4)*\n\n"
             f"Namaste {cust_name} Ji! {store_name} se reminder:\n"
             f"Aapka order pack ho kar dukan par aapka intezaar kar raha hai. 🛍️\n\n"
             f"📦 Items: {len(order.items)} items | 💵 Bill: ₹{order.grand_total:.2f}\n"
-            f"🎫 Pickup Code: *{raw_token}*\n\n"
-            f"📍 Kripya dukan band hone se pehle aakar apna samaan le jayein. Dhanyawaad!"
+            f"🔢 Pickup PIN: *{pin}*\n\n"
+            f"📍 Dukan par sirf yeh 4-digit PIN (*{pin}*) batayein aur apna samaan le jayein! Dhanyawaad! 🙏"
         )
 
         db.add(

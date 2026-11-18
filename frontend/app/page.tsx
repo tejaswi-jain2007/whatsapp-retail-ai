@@ -938,11 +938,30 @@ export default function DashboardPage() {
                                   <span>Remind ({order.pickup_reminders_count || 1}/4)</span>
                                 </button>
                                 <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const pin = order.order_number.split("-").slice(-1)[0];
+                                    const res = await api.verifyQr(store.id, pin);
+                                    if (res.success) {
+                                      setSimSuccess("✅ Order delivered & marked as Collected!");
+                                      setTimeout(() => setSimSuccess(null), 4000);
+                                      refreshCurrentData();
+                                    } else {
+                                      alert(res.message || "Could not deliver order");
+                                    }
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition shadow-sm"
+                                  title="1-Tap Deliver to Customer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Deliver (PIN: {order.order_number.split("-").slice(-1)[0]})</span>
+                                </button>
+                                <button
                                   onClick={() => handleOpenReview(order)}
-                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
                                 >
                                   <QrCode className="w-3.5 h-3.5" />
-                                  <span>Pickup QR</span>
+                                  <span>QR</span>
                                 </button>
                               </>
                             )}
@@ -1131,14 +1150,34 @@ export default function DashboardPage() {
                                 <span>Mark Packed</span>
                               </button>
                             ) : (
-                              <button
-                                onClick={() => handleSendOrderReminder(order.id)}
-                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
-                                title="Send WhatsApp pickup reminder"
-                              >
-                                <Bell className="w-3.5 h-3.5" />
-                                <span>Remind ({order.pickup_reminders_count || 1}/4)</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    const pin = order.order_number.split("-").slice(-1)[0];
+                                    const res = await api.verifyQr(store.id, pin);
+                                    if (res.success) {
+                                      setSimSuccess("✅ Order delivered & marked as Collected!");
+                                      setTimeout(() => setSimSuccess(null), 4000);
+                                      refreshCurrentData();
+                                    } else {
+                                      alert(res.message || "Could not deliver order");
+                                    }
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow-sm"
+                                  title="1-Tap Deliver"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Deliver (PIN: {order.order_number.split("-").slice(-1)[0]})</span>
+                                </button>
+                                <button
+                                  onClick={() => handleSendOrderReminder(order.id)}
+                                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm"
+                                  title="Send WhatsApp pickup reminder"
+                                >
+                                  <Bell className="w-3.5 h-3.5" />
+                                  <span>Remind ({order.pickup_reminders_count || 1}/4)</span>
+                                </button>
+                              </>
                             )}
 
                             <button
@@ -1246,15 +1285,18 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                    Enter Pickup Code or Scan Token:
+                    4-Digit Pickup PIN ya Order Number Daalein:
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. PKUP-ORD-261118-1234-..."
+                    placeholder="Sirf 4-digit PIN daalein (jaise: 7792)"
                     value={qrTokenInput}
                     onChange={(e) => setQrTokenInput(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 font-mono text-center text-lg font-bold tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
+                  <p className="text-[11px] text-slate-400 text-center mt-1">
+                    Customer ke WhatsApp par 4-digit PIN gaya hai (jaise: <strong>7792</strong>). Sirf wo PIN yahan daalein!
+                  </p>
                 </div>
 
                 <button
@@ -1262,8 +1304,50 @@ export default function DashboardPage() {
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
                 >
                   <Check className="w-5 h-5" />
-                  <span>Verify and Mark Collected</span>
+                  <span>Verify PIN & Deliver (समान दे दिया)</span>
                 </button>
+
+                {/* Quick 1-Tap Delivery for Ready Orders */}
+                {orders.filter((o) => o.status === "READY_FOR_PICKUP").length > 0 && (
+                  <div className="pt-3 border-t border-slate-200">
+                    <p className="text-xs font-semibold text-slate-600 mb-2">
+                      Ya niche ready order par 1-tap karke deliver karein:
+                    </p>
+                    <div className="space-y-2">
+                      {orders
+                        .filter((o) => o.status === "READY_FOR_PICKUP")
+                        .map((readyOrd) => {
+                          const pin = readyOrd.order_number.split("-").slice(-1)[0];
+                          return (
+                            <div
+                              key={readyOrd.id}
+                              className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between"
+                            >
+                              <div>
+                                <span className="font-bold text-xs text-slate-900 block">
+                                  {readyOrd.customer?.name || "Customer"} (#{readyOrd.order_number})
+                                </span>
+                                <span className="text-[11px] text-emerald-800 font-mono font-bold">
+                                  PIN: {pin} &bull; Total: ₹{readyOrd.grand_total}
+                                </span>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  setQrTokenInput(pin);
+                                  const res = await api.verifyQr(store.id, pin);
+                                  setQrVerificationResult(res);
+                                  if (res.success) refreshCurrentData();
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm"
+                              >
+                                Deliver Now
+                              </button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Verification Result Feedback */}
