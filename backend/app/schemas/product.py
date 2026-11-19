@@ -5,7 +5,7 @@ from decimal import Decimal
 
 
 class ProductCreate(BaseModel):
-    store_id: str
+    store_id: Optional[str] = None
     category_id: Optional[str] = None
     name: str
     brand: Optional[str] = None

@@ -28,6 +28,10 @@ import {
   Menu,
   Bell,
   Phone,
+  Plus,
+  Trash2,
+  Edit2,
+  Tag,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -75,6 +79,18 @@ export default function DashboardPage() {
   const [isSendingSim, setIsSendingSim] = useState<boolean>(false);
   const [activeChatOrder, setActiveChatOrder] = useState<any>(null);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
+
+  // Product management modal states
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [newProdName, setNewProdName] = useState("");
+  const [newProdBrand, setNewProdBrand] = useState("");
+  const [newProdUnit, setNewProdUnit] = useState("kg");
+  const [newProdPrice, setNewProdPrice] = useState("");
+  const [newProdStock, setNewProdStock] = useState("100");
+  const [newProdAliases, setNewProdAliases] = useState("");
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [editingPriceProdId, setEditingPriceProdId] = useState<string | null>(null);
+  const [editPriceVal, setEditPriceVal] = useState<string>("");
 
   // Initialize and auto-login
   useEffect(() => {
@@ -404,6 +420,98 @@ export default function DashboardPage() {
       setSimError(err.message || "Failed to connect to backend server");
     } finally {
       setIsSendingSim(false);
+    }
+  };
+
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProdName.trim() || !newProdPrice || !store?.id) return;
+    setIsSavingProduct(true);
+    try {
+      const aliasList = newProdAliases
+        .split(",")
+        .map((a) => a.trim().toLowerCase())
+        .filter(Boolean);
+      await api.createProduct(store.id, {
+        name: newProdName.trim(),
+        brand: newProdBrand.trim() || null,
+        unit: newProdUnit,
+        current_price: parseFloat(newProdPrice),
+        stock_quantity: parseFloat(newProdStock) || 0,
+        aliases: aliasList,
+        availability: true,
+      });
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+      setIsAddProductOpen(false);
+      setNewProdName("");
+      setNewProdBrand("");
+      setNewProdPrice("");
+      setNewProdAliases("");
+    } catch (err) {
+      console.error("Failed to add product:", err);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const handleAddPreset = async (preset: any) => {
+    if (!store?.id) return;
+    try {
+      const aliasList = preset.aliases
+        .split(",")
+        .map((a: string) => a.trim().toLowerCase())
+        .filter(Boolean);
+      await api.createProduct(store.id, {
+        name: preset.name,
+        brand: preset.brand,
+        unit: preset.unit,
+        current_price: parseFloat(preset.price),
+        stock_quantity: 100,
+        aliases: aliasList,
+        availability: true,
+      });
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+    } catch (err) {
+      console.error("Failed to add preset:", err);
+    }
+  };
+
+  const handleToggleStock = async (product: any) => {
+    if (!store?.id) return;
+    try {
+      await api.updateProduct(product.id, {
+        availability: !product.availability,
+      });
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+    } catch (err) {
+      console.error("Failed to toggle stock:", err);
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!store?.id || !confirm("Kya aap sach me is product ko catalogue se hatana chahte hain?")) return;
+    try {
+      await api.deleteProduct(productId);
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+    } catch (err) {
+      console.error("Failed to delete product:", err);
+    }
+  };
+
+  const handleSavePriceEdit = async (productId: string) => {
+    if (!store?.id || !editPriceVal) return;
+    try {
+      await api.updateProductPrice(productId, parseFloat(editPriceVal));
+      setEditingPriceProdId(null);
+      setEditPriceVal("");
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+    } catch (err) {
+      console.error("Failed to update price:", err);
     }
   };
 
@@ -1197,74 +1305,319 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* TAB 2: PRODUCTS */}
+          {/* TAB 2: PRODUCTS & CATALOGUE */}
           {activeTab === "products" && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-800">Store Catalogue & Dynamic Pricing</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Prices configured here are used by AI to automatically calculate customer orders.
-                  </p>
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                      <Package className="w-5 h-5 text-emerald-600" />
+                      <span>Dukan Ka Catalogue & Dynamic Pricing</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Yahan jo price aur samaan hoga, AI customer ke WhatsApp messages se auto-match karke bill banayega.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsAddProductOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition shrink-0 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Naya Samaan / Product Jodein</span>
+                  </button>
+                </div>
+
+                {/* 1-Click Fast Presets */}
+                <div className="bg-emerald-50/50 border-b border-emerald-100/60 px-5 py-3 flex items-center gap-2 overflow-x-auto text-xs">
+                  <span className="text-emerald-800 font-bold shrink-0 flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>1-Tap Popular Kirana Add:</span>
+                  </span>
+                  {[
+                    { name: "Aashirvaad Shudh Chakki Atta", brand: "Aashirvaad", unit: "kg", price: "55", aliases: "atta, gehun atta, aashirvaad atta" },
+                    { name: "Madhur Pure Sugar", brand: "Madhur", unit: "kg", price: "48", aliases: "sugar, shakkar, chini, cheeni" },
+                    { name: "Fortune Kachi Ghani Mustard Oil", brand: "Fortune", unit: "litre", price: "145", aliases: "sarson tel, mustard oil, tel" },
+                    { name: "Tata Salt Vacuum Evaporated", brand: "Tata", unit: "packet", price: "28", aliases: "tata namak, namak, salt" },
+                    { name: "Maggi 2-Minute Noodles", brand: "Nestle", unit: "packet", price: "14", aliases: "maggi, noodles, 2 minute maggi" },
+                    { name: "Amul Taaza Toned Milk (500ml)", brand: "Amul", unit: "packet", price: "27", aliases: "doodh, amul doodh, milk" },
+                  ].map((preset, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleAddPreset(preset)}
+                      className="shrink-0 px-3 py-1 rounded-full bg-white border border-emerald-200 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 text-[11px] font-medium transition shadow-2xs cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3 text-emerald-600" />
+                      <span>{preset.name}</span>
+                      <span className="font-bold text-emerald-700">₹{preset.price}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 uppercase font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4">Samaan / Product Name</th>
+                        <th className="py-3 px-4">Brand</th>
+                        <th className="py-3 px-4">AI Synonyms (WhatsApp Aliases)</th>
+                        <th className="py-3 px-4">Unit</th>
+                        <th className="py-3 px-4">Dukan Ka Price (Rate)</th>
+                        <th className="py-3 px-4">Stock</th>
+                        <th className="py-3 px-4">Availability</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {products.map((prod) => (
+                        <tr key={prod.id} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3.5 px-4 font-semibold text-slate-900">
+                            <div>{prod.name}</div>
+                            {prod.variant && <div className="text-[11px] text-slate-400 font-normal">{prod.variant}</div>}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600">
+                            {prod.brand || "—"}
+                          </td>
+                          <td className="py-3.5 px-4 max-w-xs">
+                            <div className="flex flex-wrap gap-1">
+                              {prod.aliases && prod.aliases.length > 0 ? (
+                                prod.aliases.map((a: string, i: number) => (
+                                  <span
+                                    key={i}
+                                    className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px]"
+                                  >
+                                    {a}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-slate-400 text-[11px] italic">Koi alias nahi</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-medium text-slate-600">{prod.unit}</td>
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            {editingPriceProdId === prod.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  value={editPriceVal}
+                                  onChange={(e) => setEditPriceVal(e.target.value)}
+                                  className="w-16 px-1.5 py-1 text-xs border border-emerald-500 rounded bg-white font-bold"
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => handleSavePriceEdit(prod.id)}
+                                  className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => setEditingPriceProdId(null)}
+                                  className="p-1 rounded bg-slate-200 text-slate-600 hover:bg-slate-300"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 group">
+                                <span>₹{parseFloat(prod.current_price).toFixed(2)}</span>
+                                <button
+                                  onClick={() => {
+                                    setEditingPriceProdId(prod.id);
+                                    setEditPriceVal(parseFloat(prod.current_price).toString());
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-emerald-600 p-0.5 transition"
+                                  title="Change Price"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-slate-600">
+                            {parseFloat(prod.stock_quantity)}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <button
+                              onClick={() => handleToggleStock(prod)}
+                              className="cursor-pointer"
+                              title="Click to toggle stock status"
+                            >
+                              {prod.availability ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition">
+                                  ✓ In Stock
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800 hover:bg-rose-200 transition">
+                                  ✕ Out of Stock
+                                </span>
+                              )}
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={() => handleDeleteProduct(prod.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              title="Delete Product"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-600 uppercase font-semibold border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-4">Product Name</th>
-                      <th className="py-3 px-4">Brand / Variant</th>
-                      <th className="py-3 px-4">Aliases (AI Synonyms)</th>
-                      <th className="py-3 px-4">Unit</th>
-                      <th className="py-3 px-4">Current Price</th>
-                      <th className="py-3 px-4">Stock</th>
-                      <th className="py-3 px-4">Availability</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {products.map((prod) => (
-                      <tr key={prod.id} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3.5 px-4 font-semibold text-slate-900">{prod.name}</td>
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-600">{prod.brand || "—"}</span>
-                          {prod.variant && (
-                            <span className="text-slate-400 block text-[11px]">{prod.variant}</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <div className="flex flex-wrap gap-1">
-                            {prod.aliases?.map((a: string, i: number) => (
-                              <span
-                                key={i}
-                                className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                              >
-                                {a}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4">{prod.unit}</td>
-                        <td className="py-3.5 px-4 font-bold text-slate-900">
-                          ₹{parseFloat(prod.current_price).toFixed(2)}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono">{parseFloat(prod.stock_quantity)}</td>
-                        <td className="py-3.5 px-4">
-                          {prod.availability ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                              In Stock
-                            </span>
+              {/* ADD PRODUCT MODAL POPUP */}
+              {isAddProductOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative">
+                    <button
+                      onClick={() => setIsAddProductOpen(false)}
+                      className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex items-center gap-3 mb-5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <Plus className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-base">Naya Samaan / Product Jodein</h3>
+                        <p className="text-xs text-slate-500">Apni dukan ka samaan aur rate yahan add karein.</p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleAddProduct} className="space-y-4 text-xs">
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          Product / Samaan Ka Naam *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Jaise: Madhur Sugar 1kg, Fortune Mustard Oil 1L"
+                          value={newProdName}
+                          onChange={(e) => setNewProdName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-semibold text-slate-700 mb-1">
+                            Brand (Company)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Tata, Amul, Fortune, etc."
+                            value={newProdBrand}
+                            onChange={(e) => setNewProdBrand(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 mb-1">
+                            Unit (Napne Ki Ikai) *
+                          </label>
+                          <select
+                            value={newProdUnit}
+                            onChange={(e) => setNewProdUnit(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                          >
+                            <option value="kg">kg (Kilogram)</option>
+                            <option value="g">g (Gram)</option>
+                            <option value="litre">litre (Litre)</option>
+                            <option value="ml">ml (Millilitre)</option>
+                            <option value="packet">packet (Packet)</option>
+                            <option value="piece">piece (Piece / Nag)</option>
+                            <option value="bottle">bottle (Bottle)</option>
+                            <option value="dozen">dozen (Darjan)</option>
+                            <option value="box">box (Dabba / Box)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-semibold text-slate-700 mb-1">
+                            Current Price / Rate (₹) *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            required
+                            placeholder="48.00"
+                            value={newProdPrice}
+                            onChange={(e) => setNewProdPrice(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 mb-1">
+                            Stock Quantity
+                          </label>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder="100"
+                            value={newProdStock}
+                            onChange={(e) => setNewProdStock(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                          <span>AI Synonyms / Aliases (WhatsApp Search Keywords)</span>
+                          <span className="text-[10px] text-emerald-600 font-normal">Comma se alag karein</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Jaise: shakkar, chini, cheeni, sugar"
+                          value={newProdAliases}
+                          onChange={(e) => setNewProdAliases(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          💡 Customer WhatsApp par jo bolenge (jaise "shakkar", "cheeni"), AI usse is product se jod lega.
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsAddProductOpen(false)}
+                          className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingProduct}
+                          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingProduct ? (
+                            <span>Saving...</span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800">
-                              Out of Stock
-                            </span>
+                            <>
+                              <Check className="w-4 h-4" />
+                              <span>Catalogue Me Save Karein</span>
+                            </>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
