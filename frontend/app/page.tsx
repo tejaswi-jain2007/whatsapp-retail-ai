@@ -92,6 +92,12 @@ export default function DashboardPage() {
   const [editingPriceProdId, setEditingPriceProdId] = useState<string | null>(null);
   const [editPriceVal, setEditPriceVal] = useState<string>("");
 
+  // Bulk catalogue states
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState("");
+  const [isSeedingCatalogue, setIsSeedingCatalogue] = useState(false);
+  const [catalogueNotice, setCatalogueNotice] = useState<string | null>(null);
+
   // Initialize and auto-login
   useEffect(() => {
     initApp();
@@ -512,6 +518,83 @@ export default function DashboardPage() {
       if (Array.isArray(freshProds)) setProducts(freshProds);
     } catch (err) {
       console.error("Failed to update price:", err);
+    }
+  };
+
+  const handleSeedCatalogue = async () => {
+    if (!store?.id) return;
+    setIsSeedingCatalogue(true);
+    try {
+      const res = await api.seedCatalogue(store.id);
+      const freshProds = await api.getProducts(store.id);
+      if (Array.isArray(freshProds)) setProducts(freshProds);
+      setCatalogueNotice(`🎉 50+ Popular Indian Kirana items aapke catalogue me jud gaye! (Total: ${res?.total_catalogue_size || freshProds.length} items)`);
+      setTimeout(() => setCatalogueNotice(null), 6000);
+    } catch (err) {
+      console.error("Failed to seed catalogue:", err);
+    } finally {
+      setIsSeedingCatalogue(false);
+    }
+  };
+
+  const handleBulkPasteImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkImportText.trim() || !store?.id) return;
+    setIsSavingProduct(true);
+    try {
+      const lines = bulkImportText.split("\n").map((l) => l.trim()).filter(Boolean);
+      const parsedItems: any[] = [];
+
+      for (const line of lines) {
+        if (line.includes(",")) {
+          const parts = line.split(",").map((p) => p.trim());
+          const name = parts[0];
+          const price = parseFloat(parts[1]?.replace(/[^\d.]/g, "") || "0");
+          const unit = parts[2] || "kg";
+          const aliases = parts.slice(3).map((a) => a.toLowerCase().trim());
+          if (name && price > 0) {
+            parsedItems.push({
+              name,
+              current_price: price,
+              unit,
+              aliases: aliases.length > 0 ? aliases : [name.toLowerCase()],
+              stock_quantity: 100,
+              availability: true,
+            });
+          }
+        } else {
+          const match = line.match(/^(.+?)\s+[-:=]?\s*(?:rs\.?|₹)?\s*([0-9]+(?:\.[0-9]+)?)(?:\s*\/\s*([a-zA-Z]+))?/i);
+          if (match) {
+            const name = match[1].trim();
+            const price = parseFloat(match[2]);
+            const unit = match[3]?.toLowerCase() || (name.toLowerCase().includes("oil") || name.toLowerCase().includes("tel") || name.toLowerCase().includes("milk") ? "litre" : "kg");
+            parsedItems.push({
+              name,
+              current_price: price,
+              unit,
+              aliases: [name.toLowerCase()],
+              stock_quantity: 100,
+              availability: true,
+            });
+          }
+        }
+      }
+
+      if (parsedItems.length > 0) {
+        await api.bulkCreateProducts(store.id, parsedItems);
+        const freshProds = await api.getProducts(store.id);
+        if (Array.isArray(freshProds)) setProducts(freshProds);
+        setIsBulkImportOpen(false);
+        setBulkImportText("");
+        setCatalogueNotice(`✅ ${parsedItems.length} products ek sath catalogue me jud gaye!`);
+        setTimeout(() => setCatalogueNotice(null), 5000);
+      } else {
+        alert("Koi valid product nahi mila. Please format check karein (Jaise: Atta 45 ya Sugar, 48, kg).");
+      }
+    } catch (err) {
+      console.error("Bulk import failed:", err);
+    } finally {
+      setIsSavingProduct(false);
     }
   };
 
@@ -1309,24 +1392,50 @@ export default function DashboardPage() {
           {activeTab === "products" && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div>
                     <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
                       <Package className="w-5 h-5 text-emerald-600" />
-                      <span>Dukan Ka Catalogue & Dynamic Pricing</span>
+                      <span>Dukan Ka Catalogue & Dynamic Pricing ({products.length} Products)</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Yahan jo price aur samaan hoga, AI customer ke WhatsApp messages se auto-match karke bill banayega.
                     </p>
                   </div>
-                  <button
-                    onClick={() => setIsAddProductOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition shrink-0 cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>+ Naya Samaan / Product Jodein</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleSeedCatalogue}
+                      disabled={isSeedingCatalogue}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-md hover:shadow-lg transition shrink-0 cursor-pointer disabled:opacity-50"
+                      title="Load 50+ Top Indian Kirana Items in 1-Click"
+                    >
+                      <Zap className="w-4 h-4 fill-white" />
+                      <span>{isSeedingCatalogue ? "Loading..." : "⚡ 1-Click Load 50+ Kirana Items"}</span>
+                    </button>
+                    <button
+                      onClick={() => setIsBulkImportOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition shrink-0 cursor-pointer"
+                      title="Bulk Paste from WhatsApp or Diary"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>📋 Quick Bulk Paste</span>
+                    </button>
+                    <button
+                      onClick={() => setIsAddProductOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition shrink-0 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Naya Samaan</span>
+                    </button>
+                  </div>
                 </div>
+
+                {catalogueNotice && (
+                  <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-2.5 text-xs text-emerald-800 font-bold flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{catalogueNotice}</span>
+                  </div>
+                )}
 
                 {/* 1-Click Fast Presets */}
                 <div className="bg-emerald-50/50 border-b border-emerald-100/60 px-5 py-3 flex items-center gap-2 overflow-x-auto text-xs">
@@ -1612,6 +1721,75 @@ export default function DashboardPage() {
                               <span>Catalogue Me Save Karein</span>
                             </>
                           )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+              {/* BULK IMPORT MODAL POPUP */}
+              {isBulkImportOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
+                  <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 relative">
+                    <button
+                      onClick={() => setIsBulkImportOpen(false)}
+                      className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-base">Quick Bulk Paste / Import</h3>
+                        <p className="text-xs text-slate-500">Apne WhatsApp rate-list ya diary se ek sath saare samaan paste karein.</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 text-xs text-slate-600">
+                      <p className="font-bold text-slate-800 mb-1">💡 Example Format (Har line me ek item):</p>
+                      <pre className="font-mono text-[11px] text-slate-700 bg-white p-2 rounded border border-slate-200">
+Atta 45/kg
+Madhur Sugar 48/kg
+Fortune Mustard Oil 145/L
+Tata Salt 28/packet
+Moong Dal 120/kg
+Toor Dal 165/kg
+Parle G 10/packet
+Dettol Soap 36/piece</pre>
+                    </div>
+
+                    <form onSubmit={handleBulkPasteImport} className="space-y-4 text-xs">
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          Samaan Aur Rates Ki List Yahan Paste Karein:
+                        </label>
+                        <textarea
+                          rows={7}
+                          required
+                          placeholder={"Atta 45/kg\nSugar 48/kg\nFortune Mustard Oil 145/L\nTata Namak 28/packet..."}
+                          value={bulkImportText}
+                          onChange={(e) => setBulkImportText(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono"
+                        />
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsBulkImportOpen(false)}
+                          className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingProduct}
+                          className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingProduct ? <span>Importing...</span> : <><span>🚀 Ek Sath Saare Import Karein</span></>}
                         </button>
                       </div>
                     </form>

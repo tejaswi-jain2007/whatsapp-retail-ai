@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database.session import get_db
@@ -12,8 +12,76 @@ from app.schemas.product import (
 )
 from app.api.deps import get_current_user, verify_store_access
 from app.services.pricing.engine import pricing_engine
+from app.services.pricing.master_catalogue import STANDARD_KIRANA_CATALOGUE
 
 router = APIRouter(tags=["Products & Catalogue"])
+
+
+@router.post("/stores/{store_id}/products/seed-catalogue")
+def seed_store_catalogue(
+    store_id: str,
+    db: Session = Depends(get_db),
+    _store=Depends(verify_store_access),
+):
+    """
+    1-Click Bulk Seed: Adds 50+ essential Indian Kirana products with standard MRPs and AI aliases.
+    Skips items that already exist in the store catalogue.
+    """
+    existing_names = {
+        p.name.lower().strip() for p in db.query(Product).filter(Product.store_id == store_id).all()
+    }
+
+    added_count = 0
+    for item in STANDARD_KIRANA_CATALOGUE:
+        if item["name"].lower().strip() in existing_names:
+            continue
+        new_prod = Product(
+            store_id=store_id,
+            name=item["name"],
+            brand=item.get("brand"),
+            variant=item.get("variant"),
+            aliases=item.get("aliases", []),
+            unit=item["unit"],
+            current_price=item["current_price"],
+            stock_quantity=item.get("stock_quantity", 100),
+            availability=True,
+        )
+        db.add(new_prod)
+        existing_names.add(item["name"].lower().strip())
+        added_count += 1
+
+    db.commit()
+    return {"status": "success", "added_count": added_count, "total_catalogue_size": len(existing_names)}
+
+
+@router.post("/stores/{store_id}/products/bulk")
+def bulk_create_products(
+    store_id: str,
+    products_data: List[ProductCreate],
+    db: Session = Depends(get_db),
+    _store=Depends(verify_store_access),
+):
+    """
+    Bulk import products from CSV/Excel or multiline paste.
+    """
+    created = []
+    for data in products_data:
+        product = Product(
+            store_id=store_id,
+            category_id=data.category_id,
+            name=data.name,
+            brand=data.brand,
+            variant=data.variant,
+            aliases=data.aliases,
+            unit=data.unit,
+            current_price=data.current_price,
+            stock_quantity=data.stock_quantity,
+            availability=data.availability,
+        )
+        db.add(product)
+        created.append(product)
+    db.commit()
+    return {"status": "success", "count": len(created)}
 
 
 @router.get("/stores/{store_id}/products", response_model=List[ProductResponse])
