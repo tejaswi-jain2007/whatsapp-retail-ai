@@ -67,6 +67,9 @@ CASUAL_NON_RETAIL_WORDS = {
     "call", "phone", "uthana", "uthao", "bhai", "bro", "dost", "mummy", "papa",
     "bhaiya", "bhabhi", "didi", "beta", "photo", "photos", "video", "otp",
     "happy", "birthday", "congrats", "good", "morning", "night", "shadi", "karein",
+    "accha", "achha", "acha", "oye", "arre", "aree", "suno", "sun", "bolo", "bol",
+    "ok", "theek", "thik", "haan", "haa", "ha", "nahi", "nhi", "nahin", "bye",
+    "hlo", "hlw", "kar", "raha", "rha", "kuch", "ni", "bhi", "karo", "krdo",
 }
 
 
@@ -233,9 +236,9 @@ Customer WhatsApp Message:
             )
 
         # If it's a word without quantity (e.g. "maggi", "sugar", "atta"):
-        # ONLY accept if it contains a known grocery item keyword!
+        # ONLY accept if it contains an exact known grocery item keyword!
         for kw in COMMON_GROCERY_KEYWORDS:
-            if kw in seg_lower:
+            if re.search(rf"\b{re.escape(kw)}\b", seg_lower):
                 return AIParsedItem(
                     product_name=segment.strip().title(),
                     quantity=Decimal("1.0"),
