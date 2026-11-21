@@ -110,8 +110,8 @@ class WhatsAppWebhookService:
                 )
 
         if not store:
-            # Fallback to first active store in local dev
-            store = db.query(Store).filter(Store.status == "active").first()
+            # Fallback to first store in local dev
+            store = db.query(Store).filter(Store.status == "active").first() or db.query(Store).first()
             if not store:
                 return
 
@@ -161,6 +161,55 @@ class WhatsAppWebhookService:
         )
         db.add(event_record)
         db.commit()
+
+        # Check store subscription & pause state (14-Day Free Trial / ₹299/mo renewal)
+        now = datetime.now(timezone.utc)
+        is_expired = False
+
+        if store.subscription_status == "trial" and store.trial_ends_at:
+            t_end = store.trial_ends_at
+            if t_end.tzinfo is None:
+                t_end = t_end.replace(tzinfo=timezone.utc)
+            if now > t_end:
+                store.subscription_status = "expired"
+                store.status = "paused"
+                db.commit()
+                is_expired = True
+        elif store.subscription_status == "active" and store.subscription_valid_until:
+            s_end = store.subscription_valid_until
+            if s_end.tzinfo is None:
+                s_end = s_end.replace(tzinfo=timezone.utc)
+            if now > s_end:
+                store.subscription_status = "expired"
+                store.status = "paused"
+                db.commit()
+                is_expired = True
+
+        if store.status == "paused" or store.subscription_status == "expired" or is_expired:
+            notice = (
+                f"⚠️ *Namaste!*\n\n"
+                f"*{store.store_name}* ka 14-din ka free trial poora ho gaya hai aur store abhi *PAUSED* hai.\n\n"
+                f"Dukandaar subscription renew kar rahe hain (₹299/month). Renew hote hi WhatsApp orders wapas shuru ho jayenge.\n\n"
+                f"Asuvidha ke liye khed hai! 🙏"
+            )
+            await self.client.send_text_message(
+                phone_number_id=store.whatsapp_phone_number_id or phone_number_id or "default",
+                recipient_phone=normalized_phone,
+                text=notice,
+            )
+
+            # Create in-app notification for the shopkeeper
+            notif = Notification(
+                store_id=store.id,
+                channel="IN_APP",
+                recipient=store.phone,
+                content=f"⚠️ Order Blocked: Customer (+{normalized_phone}) ne message bheja, par aapka 14-Day Trial khatam hone se store PAUSED hai. Naye orders lene ke liye ₹299/month subscription renew karein.",
+                status="SENT",
+            )
+            db.add(notif)
+            event_record.processing_status = "PAUSED_TRIAL_EXPIRED"
+            db.commit()
+            return
 
         # 4. Check for interactive reply or confirmation on pending orders
         related_customer_ids = [customer.id]

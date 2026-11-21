@@ -38,3 +38,4 @@ async def trace():
         print("Is confirmation reply 'Haa'?", whatsapp_webhook_service._is_confirmation_reply("Haa"))
 
 asyncio.run(trace())
+

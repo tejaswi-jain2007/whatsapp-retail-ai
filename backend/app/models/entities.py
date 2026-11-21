@@ -61,7 +61,13 @@ class Store(Base):
     phone = Column(String(30), nullable=False)
     whatsapp_business_account_id = Column(String(100), nullable=True)
     whatsapp_phone_number_id = Column(String(100), unique=True, nullable=True, index=True)
-    status = Column(String(50), default="active", nullable=False)  # pending, active, suspended
+    status = Column(String(50), default="active", nullable=False)  # active, paused, suspended
+    subscription_status = Column(String(50), default="trial", nullable=False)  # trial, active, expired, cancelled
+    trial_starts_at = Column(DateTime(timezone=True), default=utc_now, nullable=True)
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+    subscription_plan = Column(String(50), default="monthly_299", nullable=False)
+    subscription_price = Column(Numeric(10, 2), default=299.00, nullable=False)
+    subscription_valid_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     owner = relationship("User", back_populates="stores")

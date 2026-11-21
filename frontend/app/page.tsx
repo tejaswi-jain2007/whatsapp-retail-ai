@@ -32,6 +32,10 @@ import {
   Trash2,
   Edit2,
   Tag,
+  CreditCard,
+  Lock,
+  Unlock,
+  Calendar,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -98,6 +102,21 @@ export default function DashboardPage() {
   const [isSeedingCatalogue, setIsSeedingCatalogue] = useState(false);
   const [catalogueNotice, setCatalogueNotice] = useState<string | null>(null);
 
+  // Store Onboarding / Registration states (Requested: site khulte hi store register)
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+  const [regStoreName, setRegStoreName] = useState<string>("");
+  const [regOwnerName, setRegOwnerName] = useState<string>("");
+  const [regPhone, setRegPhone] = useState<string>("");
+  const [regAddress, setRegAddress] = useState<string>("");
+  const [isRegistering, setIsRegistering] = useState<boolean>(false);
+  const [regError, setRegError] = useState<string | null>(null);
+
+  // Subscription states (14-Day Free Trial & ₹299/Month Store Pause)
+  const [subStatus, setSubStatus] = useState<any>(null);
+  const [isPayModalOpen, setIsPayModalOpen] = useState<boolean>(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false);
+  const [paySuccessMsg, setPaySuccessMsg] = useState<string | null>(null);
+
   // Initialize and auto-login
   useEffect(() => {
     initApp();
@@ -106,6 +125,14 @@ export default function DashboardPage() {
   const initApp = async () => {
     setLoading(true);
     try {
+      const savedStoreId = typeof window !== "undefined" ? localStorage.getItem("registered_store_id") : null;
+      const hasRegistered = typeof window !== "undefined" && localStorage.getItem("has_registered_store") === "true";
+
+      // If user hasn't registered yet, show the registration screen upfront!
+      if (!hasRegistered && !savedStoreId) {
+        setShowOnboarding(true);
+      }
+
       let stores = await api.getStores();
       if (!Array.isArray(stores) || stores.length === 0) {
         const loginRes = await api.login("ramesh@guptastores.com", "kirana123");
@@ -116,13 +143,142 @@ export default function DashboardPage() {
       }
 
       if (Array.isArray(stores) && stores.length > 0) {
-        setStore(stores[0]);
-        await loadStoreData(stores[0].id);
+        const activeStore = savedStoreId ? (stores.find((s: any) => s.id === savedStoreId) || stores[0]) : stores[0];
+        setStore(activeStore);
+        await loadStoreData(activeStore.id);
+        await loadSubscription(activeStore.id);
       }
     } catch (err) {
       console.error("Initialization error:", err);
+      setShowOnboarding(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSubscription = async (storeId: string) => {
+    try {
+      const sub = await api.getSubscriptionStatus(storeId);
+      if (sub && sub.subscription_status) {
+        setSubStatus(sub);
+      }
+    } catch (e) {
+      console.error("Error loading subscription:", e);
+    }
+  };
+
+  const handleRegisterStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regStoreName.trim()) {
+      setRegError("Kripya dukaan / store ka naam dalein");
+      return;
+    }
+    if (!regOwnerName.trim()) {
+      setRegError("Kripya apna (owner) naam dalein");
+      return;
+    }
+    if (!regPhone.trim() || regPhone.replace(/\D/g, "").length < 10) {
+      setRegError("Kripya 10-digit WhatsApp mobile number dalein");
+      return;
+    }
+
+    setIsRegistering(true);
+    setRegError(null);
+
+    try {
+      const cleanPhone = regPhone.replace(/\D/g, "");
+      const res = await api.registerStore({
+        store_name: regStoreName.trim(),
+        owner_name: regOwnerName.trim(),
+        phone: cleanPhone,
+        email: `store_${cleanPhone}@retailai.in`,
+        password: "kirana123",
+        address: regAddress.trim(),
+      });
+
+      if (res && res.store_id) {
+        localStorage.setItem("token", res.access_token);
+        localStorage.setItem("registered_store_id", res.store_id);
+        localStorage.setItem("has_registered_store", "true");
+        setShowOnboarding(false);
+
+        // Fetch user's stores and switch to new store
+        const stores = await api.getStores();
+        const newStore = Array.isArray(stores) ? stores.find((s: any) => s.id === res.store_id) || stores[0] : null;
+        if (newStore) {
+          setStore(newStore);
+          await loadStoreData(newStore.id);
+          await loadSubscription(newStore.id);
+        }
+      } else {
+        setRegError(res?.detail?.[0]?.msg || res?.detail || "Registration me dikkat aayi. Kripya check karein.");
+      }
+    } catch (err: any) {
+      console.error("Registration error:", err);
+      setRegError(err.message || "Registration failed. Server connect nahi ho saka.");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  const handleSubscribe = async () => {
+    if (!store?.id) return;
+    setIsProcessingPayment(true);
+    try {
+      const updated = await api.subscribeStore(store.id);
+      setSubStatus(updated);
+      setStore((prev: any) => ({
+        ...prev,
+        status: "active",
+        subscription_status: "active",
+        is_paused: false,
+        days_left_in_trial: updated.days_left,
+      }));
+      setPaySuccessMsg("🎉 Mubarak ho! ₹299/month subscription chalu ho gaya hai. Aapka store LIVE hai!");
+      setTimeout(() => {
+        setIsPayModalOpen(false);
+        setPaySuccessMsg(null);
+      }, 2500);
+    } catch (e) {
+      console.error("Subscription error:", e);
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleSimulateExpiry = async () => {
+    if (!store?.id) return;
+    try {
+      const updated = await api.simulateTrialExpiry(store.id);
+      setSubStatus(updated);
+      setStore((prev: any) => ({
+        ...prev,
+        status: "paused",
+        subscription_status: "expired",
+        is_paused: true,
+        days_left_in_trial: 0,
+      }));
+      setIsPayModalOpen(true);
+    } catch (e) {
+      console.error("Simulate expiry error:", e);
+    }
+  };
+
+  const handleResetTrial = async () => {
+    if (!store?.id) return;
+    try {
+      const updated = await api.resetTrial(store.id);
+      setSubStatus(updated);
+      setStore((prev: any) => ({
+        ...prev,
+        status: "active",
+        subscription_status: "trial",
+        is_paused: false,
+        days_left_in_trial: 14,
+      }));
+      setIsPayModalOpen(false);
+    } catch (e) {
+      console.error("Reset trial error:", e);
     }
   };
 
@@ -927,14 +1083,112 @@ export default function DashboardPage() {
             </h2>
           </div>
 
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            <div className="flex items-center space-x-1.5 sm:space-x-2 text-[10px] sm:text-xs bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-emerald-200">
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* New Store Registration Button */}
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="flex items-center space-x-1.5 text-[11px] sm:text-xs font-bold bg-slate-900 text-white px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg hover:bg-slate-800 transition shadow-sm"
+              title="Register a new store with 14-day free trial"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">+ Register Dukaan</span>
+              <span className="sm:hidden">+ Dukaan</span>
+            </button>
+
+            {/* Subscription Status Badge */}
+            {store?.status === "paused" || store?.subscription_status === "expired" || subStatus?.is_paused ? (
+              <button
+                onClick={() => setIsPayModalOpen(true)}
+                className="flex items-center space-x-1.5 text-[10px] sm:text-xs bg-red-100 text-red-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-red-300 font-bold hover:bg-red-200 transition shadow-sm animate-pulse"
+                title="Trial expired! Click to renew"
+              >
+                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                <span className="hidden sm:inline">PAUSED (Trial Expired) • ₹299/mo</span>
+                <span className="sm:hidden">PAUSED • ₹299</span>
+              </button>
+            ) : store?.subscription_status === "active" ? (
+              <button
+                onClick={() => setIsPayModalOpen(true)}
+                className="flex items-center space-x-1.5 text-[10px] sm:text-xs bg-emerald-50 text-emerald-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-emerald-300 font-bold hover:bg-emerald-100 transition shadow-sm"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Pro ({subStatus?.days_left ?? 30}d)</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsPayModalOpen(true)}
+                className="flex items-center space-x-1.5 text-[10px] sm:text-xs bg-amber-50 text-amber-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-amber-300 font-bold hover:bg-amber-100 transition shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">14-Day Trial ({subStatus?.days_left ?? store?.days_left_in_trial ?? 14}d left) • ₹299/mo</span>
+                <span className="sm:hidden">Trial ({subStatus?.days_left ?? store?.days_left_in_trial ?? 14}d)</span>
+              </button>
+            )}
+
+            <div className="hidden lg:flex items-center space-x-1.5 text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full border border-slate-200">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="hidden sm:inline">FastAPI Backend Live</span>
-              <span className="sm:hidden">Live</span>
+              <span>FastAPI Live</span>
             </div>
           </div>
         </header>
+
+        {/* Top Subscription Alerts */}
+        {store?.status === "paused" || store?.subscription_status === "expired" || subStatus?.is_paused ? (
+          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white px-3 sm:px-6 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-md border-b border-red-700">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4 text-white animate-bounce" />
+              </div>
+              <div>
+                <p className="font-bold text-xs sm:text-sm">
+                  ⚠️ Dukaan Ka 14-Din Free Trial Samapt Ho Gaya Hai! Store Abhi PAUSED Hai.
+                </p>
+                <p className="text-[11px] text-red-100">
+                  Naye WhatsApp orders reject ho rahe hain. Bot chalu karne ke liye sirf ₹299/mahina subscription chalu karein.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setIsPayModalOpen(true)}
+                className="bg-white text-red-700 font-bold text-xs px-3.5 py-1.5 rounded-lg hover:bg-red-50 transition shadow"
+              >
+                💳 Pay ₹299 & Resume Dukaan
+              </button>
+              <button
+                onClick={handleResetTrial}
+                title="Testing ke liye 14 din ka trial wapas shuru karein"
+                className="bg-red-900/80 hover:bg-red-950 text-white text-[11px] px-2.5 py-1.5 rounded-lg border border-red-400/40"
+              >
+                🔄 Reset 14-Day Trial (Test)
+              </button>
+            </div>
+          </div>
+        ) : store?.subscription_status === "trial" ? (
+          <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white px-3 sm:px-6 py-1.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 shadow-sm text-xs">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse shrink-0" />
+              <span>
+                <strong>14-Day Free Trial Shuru Hai:</strong> {subStatus?.days_left ?? store?.days_left_in_trial ?? 14} din bache hain. Uske baad sirf ₹299/mahina rahega.
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setIsPayModalOpen(true)}
+                className="underline hover:text-amber-200 text-[11px]"
+              >
+                Plan Details
+              </button>
+              <button
+                onClick={handleSimulateExpiry}
+                title="Testing helper: check how store pauses when 14 days expire"
+                className="bg-emerald-950/80 hover:bg-black text-amber-200 text-[11px] px-2 py-0.5 rounded font-medium border border-emerald-500/50"
+              >
+                ⚡ Simulate Expiry (Pause Dukaan)
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Tab Content */}
         <div className="p-3 sm:p-6 pb-24 md:pb-6 flex-1">
@@ -2815,6 +3069,295 @@ Dettol Soap 36/piece</pre>
           <span>Menu</span>
         </button>
       </div>
+
+      {/* ======================================================== */}
+      {/* STORE ONBOARDING & REGISTRATION MODAL (14-DAY TRIAL)      */}
+      {/* ======================================================== */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 my-8">
+            {/* Header with Branding */}
+            <div className="bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 text-white p-6 sm:p-8 relative">
+              {typeof window !== "undefined" && localStorage.getItem("registered_store_id") && (
+                <button
+                  onClick={() => setShowOnboarding(false)}
+                  className="absolute top-4 right-4 p-1.5 rounded-full bg-black/20 hover:bg-black/40 text-white transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+              <div className="flex items-center space-x-2 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-2">
+                <Sparkles className="w-4 h-4" />
+                <span>14-Day Full Access Free Trial</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                Apni Kirana Dukaan Online Karein 🚀
+              </h2>
+              <p className="text-xs sm:text-sm text-emerald-100 mt-1">
+                WhatsApp Order Taking • Auto Bill Maker • 50+ Groceries Pre-loaded
+              </p>
+            </div>
+
+            {/* Trial & ₹299 Pricing Explainer Badge */}
+            <div className="bg-amber-50 border-y border-amber-200/80 px-6 py-3 flex items-start space-x-3">
+              <span className="text-xl">🎁</span>
+              <div className="text-xs text-amber-900">
+                <p className="font-bold">14 Din Bilkul FREE Chalu Karein!</p>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  14 din baad sirf <strong>₹299/Mahina</strong> subscription lagega. Trial khatam hone par store pause ho jayega jab tak payment na ho. Koi credit card zaroori nahi!
+                </p>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleRegisterStore} className="p-6 sm:p-8 space-y-4">
+              {regError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{regError}</span>
+                </div>
+              )}
+
+              {/* 1. Store Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  🏪 Store / Dukaan Ka Naam <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Mahaveer Kirana & General Store"
+                  value={regStoreName}
+                  onChange={(e) => setRegStoreName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm text-slate-900 font-medium"
+                />
+              </div>
+
+              {/* 2. Owner Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  👤 Dukandaar / Owner Ka Naam <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Ramesh Jain"
+                  value={regOwnerName}
+                  onChange={(e) => setRegOwnerName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm text-slate-900 font-medium"
+                />
+              </div>
+
+              {/* 3. WhatsApp Phone Number */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  📱 Dukaan Ka WhatsApp Number <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-3 text-sm font-bold text-slate-500">+91</span>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="9425194943"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    className="w-full pl-12 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Is number par grahak order bhejenge aur WhatsApp bot chalega.
+                </p>
+              </div>
+
+              {/* 4. Address / City */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  📍 Dukaan Ka Pata / Sheher (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Main Market, Indore"
+                  value={regAddress}
+                  onChange={(e) => setRegAddress(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm text-slate-900 font-medium"
+                />
+              </div>
+
+              {/* Feature Highlights */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+                <div className="flex items-center space-x-1.5 text-emerald-700 font-semibold">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>50+ Essential Kirana Items Turant Load Ho Jayenge</span>
+                </div>
+                <div className="flex items-center space-x-1.5 text-emerald-700 font-semibold">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>14 Din Ka Full Trial Shuru Hoga (No Payment Needed)</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 space-y-2">
+                <button
+                  type="submit"
+                  disabled={isRegistering}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2 disabled:opacity-70"
+                >
+                  {isRegistering ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Store Create Ho Raha Hai...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Start 14-Day Free Trial & Setup Store</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOnboarding(false);
+                    localStorage.setItem("has_registered_store", "true");
+                  }}
+                  className="w-full py-2 text-xs text-slate-500 hover:text-slate-800 font-medium text-center transition"
+                >
+                  ⚡ Ya Demo Store Preview Dekhein (Gupta Stores)
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* ₹299/MONTH SUBSCRIPTION / RENEWAL PAYWALL MODAL          */}
+      {/* ======================================================== */}
+      {isPayModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 my-8">
+            {/* Header */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white p-6 relative">
+              <button
+                onClick={() => setIsPayModalOpen(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="inline-flex items-center space-x-1.5 bg-amber-400/20 text-amber-300 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-amber-400/30 mb-2">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>KiranaAI Pro Dukaan</span>
+              </div>
+              <h3 className="text-xl font-black">
+                {store?.status === "paused" || store?.subscription_status === "expired" || subStatus?.is_paused
+                  ? "Dukaan Resume Karein 🚀"
+                  : "KiranaAI Subscription Plan"}
+              </h3>
+              <p className="text-xs text-slate-300 mt-1">
+                {store?.store_name || "Aapki Dukaan"} • WhatsApp Automation Suite
+              </p>
+            </div>
+
+            {/* Price Box */}
+            <div className="p-6 space-y-4">
+              {paySuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{paySuccessMsg}</span>
+                </div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  Pro Dukaan Plan
+                </span>
+                <div className="flex items-center justify-center space-x-1 my-1">
+                  <span className="text-3xl font-black text-slate-900">₹299</span>
+                  <span className="text-xs text-slate-500 font-bold">/ Month</span>
+                </div>
+                <p className="text-[11px] text-emerald-600 font-semibold">
+                  ⚡ Sirf ₹10 prati din me poori dukaan digital & automated!
+                </p>
+              </div>
+
+              {/* Status Notice */}
+              {store?.status === "paused" || store?.subscription_status === "expired" || subStatus?.is_paused ? (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
+                  <p className="font-bold">⚠️ Store Status: PAUSED</p>
+                  <p className="text-[11px] mt-0.5">
+                    14-din ka free trial expire ho gaya hai. Grahakon ke WhatsApp messages par trial notice jaa raha hai. Pay karte hi turant order processing chalu ho jayegi.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <p className="font-bold">⏳ Trial Status: {subStatus?.days_left ?? store?.days_left_in_trial ?? 14} Din Baaki</p>
+                  <p className="text-[11px] mt-0.5">
+                    Trial khatam hote hi store pause hoga jab tak ₹299 plan activate na ho.
+                  </p>
+                </div>
+              )}
+
+              {/* Feature Checklist */}
+              <div className="space-y-2 text-xs text-slate-700">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Unlimited WhatsApp AI Order Processing</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Instant Digital Bills, Summaries & QR Pickup</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Real-time Grocery Catalogue & Price Management</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Dukaan Analytics, Sales Reports & Customer Lists</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 space-y-2">
+                <button
+                  onClick={handleSubscribe}
+                  disabled={isProcessingPayment}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-600/20 transition flex items-center justify-center space-x-2 disabled:opacity-70"
+                >
+                  {isProcessingPayment ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Processing Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4" />
+                      <span>Pay ₹299 & Activate Store (Instant)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Developer / Testing buttons */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2 text-[11px]">
+                  <button
+                    onClick={handleSimulateExpiry}
+                    className="flex-1 py-1.5 px-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg border border-red-200 font-semibold"
+                  >
+                    ⚡ Simulate 14d Expiry (Pause)
+                  </button>
+                  <button
+                    onClick={handleResetTrial}
+                    className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-300 font-semibold"
+                  >
+                    🔄 Reset 14-Day Trial
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

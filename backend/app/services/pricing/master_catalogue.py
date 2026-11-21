@@ -418,3 +418,4 @@ STANDARD_KIRANA_CATALOGUE: List[Dict[str, Any]] = [
         "aliases": ["machis", "matchbox", "machis dibbi"],
     },
 ]
+
